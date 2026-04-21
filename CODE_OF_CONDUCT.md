@@ -1,6 +1,6 @@
 ﻿# Community Contribution Terms
 
-AIStockBrain is intended to be a practical, respectful, and safety-conscious open source project. By participating in this project, you agree to follow these community terms.
+AI-Trading-Margin-Visualizeris intended to be a practical, respectful, and safety-conscious open source project. By participating in this project, you agree to follow these community terms.
 
 ## Be Respectful
 

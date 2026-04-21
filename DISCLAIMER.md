@@ -1,6 +1,6 @@
 ﻿# Disclaimer
 
-AIStockBrain / Neural-Twin is experimental software for research, simulation, education, and paper-trading workflows.
+AI-Trading-Margin-Visualizer/ Neural-Twin is experimental software for research, simulation, education, and paper-trading workflows.
 
 ## Not Financial Advice
 
