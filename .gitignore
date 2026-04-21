@@ -1,0 +1,63 @@
+﻿# Local configuration and secrets
+.env
+.env.*
+!.env.template
+local_config.yaml
+*.key
+*.pem
+*.p12
+
+# Logs and runtime state
+*.log
+logs/
+run/
+tmp/
+temp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+
+# Node / Vue
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+.vite/
+
+# AI Lab generated files
+lab/candidates/
+lab/mistake_logs/
+lab/reports/
+strategy_candidate.py
+
+# Data and database volumes
+data/historical/
+mirror/data/*.csv
+mirror/data/*.parquet
+pgdata/
+ollama_models/
+*.sqlite
+*.sqlite3
+*.db
+
+# Docker and local overrides
+docker-compose.override.yml
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
