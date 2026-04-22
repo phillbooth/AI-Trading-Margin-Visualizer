@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-neural_twin}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+
+  mirror:
+    build:
+      context: ./mirror
+    environment:
+      HISTORICAL_DATA_PATH: /app/data/sample_stock_ohlcv.csv
+      SIM_SPEED: ${SIM_SPEED:-10x}
+    ports:
+      - "3101:3101"
+    volumes:
+      - ./data/fixtures:/app/data:ro
+
+  brain:
+    build:
+      context: ./brain
+    environment:
+      HISTORICAL_DATA_PATH: /app/data/sample_stock_ohlcv.csv
+      IS_PAPER_TRADING: "true"
+    volumes:
+      - ./data/fixtures:/app/data:ro
+      - ./run:/app/run
+    depends_on:
+      - db
+
+  lab:
+    build:
+      context: ./lab
+    command: ["python", "trainer.py", "--data-dir", "/workspace/data/fixtures", "--passes", "${TRAINING_PASSES:-3}", "--report", "/workspace/run/latest_training_report.json"]
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-coder-v2}
+    volumes:
+      - ./brain:/workspace/brain
+      - ./data:/workspace/data:ro
+      - ./lab:/workspace/lab
+      - ./run:/workspace/run
+    depends_on:
+      - brain
+
+  ui:
+    image: nginx:1.27-alpine
+    ports:
+      - "3100:80"
+    volumes:
+      - ./ui/prototype:/usr/share/nginx/html:ro
+
+volumes:
+  pgdata:

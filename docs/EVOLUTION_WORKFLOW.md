@@ -19,16 +19,45 @@ A strategy generation should include:
 
 ## Loop
 
-1. Detect a failure condition, such as drawdown, stop loss, missed risk signal, or degraded benchmark.
-2. Create a mistake log with market context, indicators, sentiment, position state, and decision output.
-3. Read the current strategy rewrite surface.
-4. Ask the configured LLM for a constrained change.
-5. Save the result as a candidate strategy.
-6. Run syntax checks and static checks.
-7. Run deterministic Mirror replays in the sandbox.
-8. Compare candidate results against the current production strategy.
-9. Promote only if the candidate passes all thresholds.
-10. Commit the approved change and notify the UI.
+1. Replay historical candles as if the next candle is unknown.
+2. Ask the Brain for a next-candle prediction and paper decision.
+3. Reveal the next historical candle and score the prediction as right, wrong, or flat.
+4. Record prediction context, actual outcome, paper equity, drawdown, and any mistake.
+5. Repeat across all configured assets and all configured passes.
+6. At a checkpoint, decide whether there is enough evidence to attempt a rewrite.
+7. Read the current strategy rewrite surface.
+8. Ask the configured LLM for a constrained change.
+9. Save the result as a candidate strategy.
+10. Run syntax checks and static checks.
+11. Run deterministic Mirror replays in the sandbox.
+12. Compare candidate results against the current production strategy on the same windows plus out-of-sample windows.
+13. Promote only if the candidate passes all thresholds.
+14. Commit the approved change and notify the UI.
+
+The system should learn from every prediction, but production code should not be rewritten after every candle. Per-candle self-modification makes the run unstable and encourages overfitting. The safe pattern is: record every outcome, batch evidence into checkpoints, generate a candidate, test it against baseline, then promote only if it improves risk-adjusted performance.
+
+## Multi-Asset Training Sessions
+
+A training session can run many symbols through many passes, such as ten shares with five years of candles each and three passes before stopping.
+
+Session inputs:
+
+- Historical data directory.
+- Symbol list or CSV pattern.
+- Pass count.
+- Prediction horizon.
+- Starting equity and risk limits.
+- Current strategy generation.
+
+Session outputs:
+
+- Prediction count and accuracy.
+- Average return error.
+- Mistake count and mistake contexts.
+- Paper equity and drawdown.
+- Rewrite recommendation: hold current strategy or queue candidate.
+
+The first runnable implementation is `lab/trainer.py`.
 
 ## Candidate Validation
 
@@ -90,3 +119,4 @@ Recommended constraints:
 | Unsafe imports | Block filesystem, subprocess, sockets, and environment reads. |
 | API depletion | Limit attempts per day and per mistake. |
 | Silent degradation | Store and compare baseline metrics for every candidate. |
+| Live trading loss | Keep live execution disabled until paper trading, audit logs, manual approval, and broker risk limits exist. |

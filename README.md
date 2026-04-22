@@ -1,8 +1,36 @@
-﻿# Neural-Twin: Autonomous Self-Evolving Quant
+﻿# AI Trading Margin Visualizer
 
-Neural-Twin is a four-service framework for simulating, executing, and evolving trading strategies across crypto, stocks, commodities, and other asset classes. The system is designed around a controlled simulation loop: a Mirror service replays historical markets as if they are live, a Brain service makes paper-trading decisions, a Lab service proposes strategy improvements, and a UI service shows the current state of the system.
+## App Prototype
 
-This repository currently starts as the project documentation pack. The first implementation pass should create the service folders, configuration files, database schema, and minimal runnable containers described here.
+This repository includes a runnable static dashboard for margin, liquidation, and paper-replay analysis.
+
+Open [index.html](index.html) in a browser to use the app. The root page redirects to [ui/prototype/index.html](ui/prototype/index.html). No package install or build step is required for the prototype.
+
+Current app features:
+
+- Trade setup controls for asset, direction, equity, margin, entry, size, leverage, stop, maintenance margin, fees, AI confidence, and volatility shock.
+- Health score, liquidation estimate, margin usage, and risk-to-stop metrics.
+- Canvas risk map showing entry, stop, liquidation, and shock path.
+- AI consensus panel for Quant, Neural, and Sentiment scores.
+- Defensive AI rule: when a decision is ambiguous or risk signals conflict, the app favors protecting capital over taking more exposure.
+- Local paper replay controls for run, pause, step, reset, and replay speed.
+- Paper equity curve, open position state, simulated drawdown, and replay price tape.
+- Decision log, mistake log, and strategy generation timeline to preview the future command center workflow.
+- Stress scenario table for favorable, adverse, stop, shock, and liquidation outcomes.
+- Local snapshot log stored in browser storage.
+
+Neural-Twin is a four-service framework for simulating, executing, and evolving trading strategies across crypto, stocks, commodities, and other asset classes. The system is designed around a controlled simulation loop: a Mirror service replays historical markets as if they are live, a Brain service makes paper-trading predictions and decisions, a Lab service proposes strategy improvements, and a UI service shows the current state of the system.
+
+The core concept is to load historical market data, such as the last five years of stock candles, and make the Brain predict the next move as though the future is unknown. Because the replay is historical, the system can immediately score each prediction against what actually happened. Mistakes and correct calls become training evidence for the Lab, which asks an LLM or mock provider for a constrained rewrite of `brain/strategy.py`, validates it in a sandbox, and only promotes changes that improve backtest results.
+
+A typical training run should be able to replay many assets many times. For example, ten stocks with five years of candles can be run through three passes. Each pass records predictions, actual outcomes, drawdown, paper equity, and mistakes. The Lab then decides whether to hold the current strategy or queue a candidate rewrite at a checkpoint. Production strategy code should not be rewritten after every candle; it should be rewritten, tested, compared, and promoted through a controlled validation gate.
+
+This repository now contains the planned service folders, configuration files, database schema, a sample historical fixture, and minimal runnable skeletons for the Mirror, Brain, Lab, and UI.
+
+## Operating Notes
+
+- The system should learn from every right and wrong prediction, but it should not rewrite production strategy code after every candle. Strategy changes should happen through checkpointed evolution: collect evidence, generate a candidate, sandbox it, compare it against the baseline, and promote it only when validation improves.
+- Live stock trading is a later stage, not the default mode. A strategy that performs well on historical replay must still pass paper trading, audit logging, out-of-sample testing, broker risk limits, rollback controls, and manual approval before live execution is enabled.
 
 ## Core Philosophy
 
@@ -31,6 +59,7 @@ This repository currently starts as the project documentation pack. The first im
 |   `-- data/           # Historical CSV/Parquet files, ignored by Git
 |-- lab/                # Service 3: Python evolution engine
 |   |-- evolver.py      # LLM interface and Git manager
+|   |-- trainer.py      # Multi-asset, multi-pass historical training loop
 |   |-- sandbox.py      # Isolated test runner
 |   `-- prompts.py      # Code-generation prompts and policies
 |-- ui/                 # Service 4: Vue command center
@@ -38,12 +67,38 @@ This repository currently starts as the project documentation pack. The first im
 |   `-- tailwind.config.js
 |-- db/                 # Persistent storage setup
 |   `-- init.sql        # Multi-asset schema
+|-- data/
+|   `-- fixtures/       # Tiny committed fixture for smoke tests
 `-- docs/               # Project design and implementation notes
 ```
 
-## Quick Start Target
+## Quick Start
 
-The future local development flow should look like this:
+Run the static UI prototype:
+
+```bash
+open index.html
+```
+
+Run the first historical prediction backtest:
+
+```bash
+python brain/main.py --data data/fixtures/sample_stock_ohlcv.csv
+```
+
+Run three historical training passes across every CSV in a data directory:
+
+```bash
+python lab/trainer.py --data-dir data/fixtures --passes 3 --report run/latest_training_report.json
+```
+
+Generate a mock Lab rewrite candidate:
+
+```bash
+python lab/evolver.py --mistakes run/latest_training_report.json --strategy brain/strategy.py
+```
+
+Run the service stack target:
 
 ```bash
 ollama pull deepseek-coder-v2
@@ -51,11 +106,15 @@ cp .env.template .env
 docker-compose up --build
 ```
 
-Expected controls once the Mirror service exists:
+Current Mirror endpoints:
 
-- Press `Space` in the Mirror terminal to pause or resume simulation playback.
-- Press `Enter` in the Mirror terminal to skip forward one simulation day.
-- Use `Ctrl+C` or `docker stop` for graceful shutdown and state persistence.
+- `GET /health`
+- `GET /status`
+- `GET /candles`
+- `GET /step?count=1`
+- `GET /pause`
+- `GET /resume`
+- `GET /reset`
 
 ## Initial Documentation
 
@@ -67,17 +126,11 @@ Expected controls once the Mirror service exists:
 
 ## Safety Position
 
-This project should begin as a paper-trading and simulation system only. Live exchange execution should remain disabled until the Brain has explicit risk limits, audit logs, rollback controls, test coverage, and manual approval gates.
+This project should begin as a paper-trading and simulation system only. Live exchange execution should remain disabled until the Brain has explicit risk limits, audit logs, rollback controls, test coverage, out-of-sample validation, and manual approval gates. A strategy that performs well on historical replay is still not proven safe for live trading.
 
 ## Next Implementation Step
 
-Create the repository scaffolding and infrastructure files:
-
-- `.gitignore`
-- `.env.template`
-- `docker-compose.yml`
-- `db/init.sql`
-- minimal `brain/`, `mirror/`, `lab/`, and `ui/` service skeletons
+Replace the small committed fixture with a real five-year historical data adapter for multiple symbols, then wire Brain results into Postgres so the UI can read real prediction, mistake, and generation records.
 
 ## License
 
@@ -90,4 +143,3 @@ Contributors and users are expected to be respectful, constructive, and safety-c
 ## Disclaimer
 
 This project is experimental trading software. It is not financial advice, has no warranty, and must be used at your own risk. See [DISCLAIMER.md](DISCLAIMER.md).
-

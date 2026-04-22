@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Trading Margin Visualizer</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Paper trading command center</p>
+        <h1>AI Trading Margin Visualizer</h1>
+      </div>
+      <div class="status-strip" aria-label="Application state">
+        <span class="status-pill">Paper mode</span>
+        <span class="status-pill neutral" id="mirrorState">Mirror paused</span>
+        <span class="status-pill neutral" id="saveState">Local snapshot ready</span>
+      </div>
+    </header>
+
+    <section class="system-strip" aria-label="Simulation controls">
+      <div class="system-cell">
+        <span>Simulation Clock</span>
+        <strong id="simClock">--</strong>
+        <small id="simMode">Replay paused</small>
+      </div>
+      <div class="system-cell">
+        <span>Market Price</span>
+        <strong id="simPrice">--</strong>
+        <small id="simTick">Tick 0</small>
+      </div>
+      <div class="system-cell">
+        <span>Paper Equity</span>
+        <strong id="simEquity">--</strong>
+        <small id="simDrawdown">Drawdown --</small>
+      </div>
+      <div class="system-cell">
+        <span>Strategy Generation</span>
+        <strong id="strategyGen">Gen 3</strong>
+        <small id="strategyState">Baseline active</small>
+      </div>
+      <div class="sim-controls" aria-label="Replay controls">
+        <button type="button" class="primary-button" id="runToggleButton">Run</button>
+        <button type="button" class="secondary-button" id="stepButton">Step</button>
+        <button type="button" class="secondary-button" id="resetSimButton">Reset Replay</button>
+        <label>
+          Speed
+          <select id="speedSelect">
+            <option value="1">1x</option>
+            <option value="2">2x</option>
+            <option value="4">4x</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <main class="workspace">
+      <section class="control-panel" aria-label="Trade inputs">
+        <div class="panel-heading">
+          <h2>Trade Setup</h2>
+          <button type="button" class="secondary-button" id="resetButton">Reset</button>
+        </div>
+
+        <div class="field-grid compact">
+          <label>
+            Asset
+            <select id="assetPreset">
+              <option value="BTCUSDT">BTCUSDT</option>
+              <option value="ETHUSDT">ETHUSDT</option>
+              <option value="AAPL">AAPL</option>
+              <option value="XAUUSD">XAUUSD</option>
+            </select>
+          </label>
+          <label>
+            Type
+            <select id="assetType">
+              <option value="CRYPTO">Crypto</option>
+              <option value="STOCK">Stock</option>
+              <option value="COMMODITY">Commodity</option>
+            </select>
+          </label>
+        </div>
+
+        <fieldset class="segmented" aria-label="Position direction">
+          <legend>Direction</legend>
+          <label><input type="radio" name="direction" value="long" checked> Long</label>
+          <label><input type="radio" name="direction" value="short"> Short</label>
+        </fieldset>
+
+        <div class="field-grid">
+          <label>Account equity<input id="equity" type="number" min="0" step="100" value="10000"></label>
+          <label>Available margin<input id="availableMargin" type="number" min="0" step="100" value="7500"></label>
+          <label>Entry price<input id="entryPrice" type="number" min="0.0001" step="0.01" value="65000"></label>
+          <label>Position size<input id="positionSize" type="number" min="0.0001" step="0.001" value="0.18"></label>
+          <label>Leverage<input id="leverage" type="number" min="1" max="125" step="1" value="8"></label>
+          <label>Stop price<input id="stopPrice" type="number" min="0.0001" step="0.01" value="62500"></label>
+          <label>Maintenance margin %<input id="maintenance" type="number" min="0" max="50" step="0.05" value="0.8"></label>
+          <label>Fee estimate %<input id="fees" type="number" min="0" max="10" step="0.01" value="0.08"></label>
+        </div>
+
+        <div class="slider-block">
+          <label for="aiConfidence">AI confidence</label>
+          <div class="slider-row">
+            <input id="aiConfidence" type="range" min="0" max="100" value="64">
+            <output id="aiConfidenceValue">64%</output>
+          </div>
+        </div>
+
+        <div class="slider-block">
+          <label for="volatilityShock">Volatility shock</label>
+          <div class="slider-row">
+            <input id="volatilityShock" type="range" min="1" max="30" value="9">
+            <output id="volatilityShockValue">9%</output>
+          </div>
+        </div>
+      </section>
+
+      <section class="summary-panel" aria-label="Margin summary">
+        <div class="metric-band">
+          <article class="metric-card">
+            <span>Health Score</span>
+            <strong id="healthScore">--</strong>
+            <small id="healthLabel">Calculating</small>
+          </article>
+          <article class="metric-card">
+            <span>Liquidation Price</span>
+            <strong id="liquidationPrice">--</strong>
+            <small id="liqDistance">--</small>
+          </article>
+          <article class="metric-card">
+            <span>Initial Margin</span>
+            <strong id="initialMargin">--</strong>
+            <small id="marginUsage">--</small>
+          </article>
+          <article class="metric-card">
+            <span>Risk To Stop</span>
+            <strong id="riskToStop">--</strong>
+            <small id="riskPercent">--</small>
+          </article>
+        </div>
+
+        <section class="replay-panel" aria-label="Paper replay portfolio">
+          <div class="panel-heading">
+            <h2>Paper Replay</h2>
+            <span id="tapeSummary">Awaiting first tick</span>
+          </div>
+          <div class="replay-grid">
+            <div class="position-sheet">
+              <div>
+                <span>Open Position</span>
+                <strong id="positionTitle">--</strong>
+              </div>
+              <div>
+                <span>Unrealized PnL</span>
+                <strong id="positionPnl">--</strong>
+              </div>
+              <div>
+                <span>Free Margin</span>
+                <strong id="positionFreeMargin">--</strong>
+              </div>
+              <div>
+                <span>Replay Status</span>
+                <strong id="positionStatus">--</strong>
+              </div>
+            </div>
+            <canvas id="equityCanvas" width="740" height="230" aria-label="Paper equity curve"></canvas>
+          </div>
+        </section>
+
+        <div class="analysis-grid">
+          <section class="chart-panel" aria-label="Price risk map">
+            <div class="panel-heading">
+              <h2>Risk Map</h2>
+              <button type="button" class="primary-button" id="snapshotButton">Save Snapshot</button>
+            </div>
+            <canvas id="riskCanvas" width="980" height="460" aria-label="Risk map chart"></canvas>
+          </section>
+
+          <section class="ai-panel" aria-label="AI signal consensus">
+            <div class="panel-heading">
+              <h2>AI Consensus</h2>
+              <span class="signal-badge" id="riskBadge">--</span>
+            </div>
+            <div class="signal-stack">
+              <div class="signal-row"><span>Quant</span><meter id="quantMeter" min="0" max="100" value="50"></meter><strong id="quantValue">--</strong></div>
+              <div class="signal-row"><span>Neural</span><meter id="neuralMeter" min="0" max="100" value="50"></meter><strong id="neuralValue">--</strong></div>
+              <div class="signal-row"><span>Sentiment</span><meter id="sentimentMeter" min="0" max="100" value="50"></meter><strong id="sentimentValue">--</strong></div>
+            </div>
+            <div class="decision-box" id="decisionText">Waiting for input.</div>
+          </section>
+        </div>
+
+        <div class="operations-grid">
+          <section class="decision-panel" aria-label="Decision log">
+            <div class="panel-heading">
+              <h2>Decision Log</h2>
+              <span id="decisionSummary">No decisions</span>
+            </div>
+            <div id="decisionLog" class="event-list"></div>
+          </section>
+
+          <section class="mistake-panel" aria-label="Mistake log">
+            <div class="panel-heading">
+              <h2>Mistake Log</h2>
+              <span id="mistakeSummary">No mistakes</span>
+            </div>
+            <div id="mistakeLog" class="event-list"></div>
+          </section>
+
+          <section class="timeline-panel" aria-label="Strategy generation timeline">
+            <div class="panel-heading">
+              <h2>Strategy Timeline</h2>
+              <span id="timelineSummary">Gen 3 active</span>
+            </div>
+            <div id="strategyTimeline" class="timeline-list"></div>
+          </section>
+        </div>
+
+        <section class="table-panel" aria-label="Stress scenarios">
+          <div class="panel-heading">
+            <h2>Stress Scenarios</h2>
+            <span id="scenarioSummary">--</span>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Scenario</th>
+                  <th>Price</th>
+                  <th>PnL</th>
+                  <th>Equity After</th>
+                  <th>Free Margin</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="scenarioRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="log-panel" aria-label="Saved snapshots">
+          <div class="panel-heading">
+            <h2>Snapshot Log</h2>
+            <button type="button" class="secondary-button" id="clearLogButton">Clear</button>
+          </div>
+          <div id="snapshotLog" class="snapshot-list"></div>
+        </section>
+      </section>
+    </main>
+    <footer class="risk-note">
+      Simulation tool only. Not financial advice. Use at your own risk.
+    </footer>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
