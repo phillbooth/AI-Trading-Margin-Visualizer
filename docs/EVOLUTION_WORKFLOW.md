@@ -89,13 +89,13 @@ Use a provider abstraction so `.env` controls the model without changing code.
 
 ```text
 BaseLLM
-|-- OllamaLLM
+|-- OnyxLLM
 |-- OpenAILLM
 |-- ClaudeLLM
 `-- MockLLM for tests
 ```
 
-The first implementation should support Ollama and a mock provider. Remote providers can be added after local sandboxing is reliable.
+The first implementation should support Onyx and a mock provider. Remote providers can be added after local sandboxing is reliable.
 
 ## Prompt Contract
 

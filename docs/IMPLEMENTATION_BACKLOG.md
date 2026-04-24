@@ -35,7 +35,7 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 - [x] Read mistake logs and current strategy code.
 - [x] Implement mock LLM provider for tests.
 - [x] Add multi-asset, multi-pass historical training loop.
-- Implement Ollama provider.
+- [x] Implement Onyx provider skeleton.
 - [x] Save candidates under ignored `lab/candidates/`.
 - [x] Validate candidate syntax and interface.
 - Run sandbox replay against Mirror deterministic mode.

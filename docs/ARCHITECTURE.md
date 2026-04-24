@@ -39,7 +39,7 @@ The Lab owns the strategy improvement loop. It reads mistake logs, asks an LLM f
 Primary responsibilities:
 
 - Build evolution prompts from mistake logs and current strategy code.
-- Route LLM calls to Ollama, OpenAI, Claude, or another configured provider.
+- Route LLM calls to Onyx, OpenAI, Claude, or another configured provider.
 - Write candidate strategy files outside production paths.
 - Run syntax checks, lint checks, and deterministic backtests.
 - Commit approved strategy versions to Git.

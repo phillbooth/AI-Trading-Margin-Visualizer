@@ -49,9 +49,14 @@ Suggested template:
 
 ```bash
 # LLM config
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-LLM_MODEL=deepseek-coder-v2
+LLM_PROVIDER=onyx
+ONYX_BASE_URL=http://localhost:3000
+ONYX_API_MODE=app
+ONYX_MODEL=
+ONYX_TOKEN=replace_me
+ONYX_KEY=
+ONYX_SECRET=
+LLM_MODEL=
 
 # Exchange config
 EXCHANGE_API_KEY=your_key_here
@@ -84,7 +89,6 @@ lab/candidates/
 lab/mistake_logs/
 data/historical/
 pgdata/
-ollama_models/
 .DS_Store
 ```
 
@@ -158,6 +162,26 @@ Use source adapters so the Brain never depends directly on a vendor API.
 - Forex: OANDA, Polygon.io, broker exports.
 
 Historical data should be normalized to the shared `market_data` table and stored as raw files under `data/historical/`, which is ignored by Git.
+
+## Onyx + Ollama Runtime Note
+
+If Onyx is running in Docker and Ollama is running on the Windows host, Onyx must use:
+
+```text
+http://host.docker.internal:11434
+```
+
+not:
+
+```text
+http://127.0.0.1:11434
+```
+
+After Docker starts or restarts, verify in `Admin -> Language Models` that:
+
+- the Ollama provider still points to `http://host.docker.internal:11434`
+- the expected Ollama model is visible
+- the default text model is still set
 
 ## Graceful Shutdown
 

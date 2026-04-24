@@ -48,7 +48,6 @@ data/historical/
 mirror/data/*.csv
 mirror/data/*.parquet
 pgdata/
-ollama_models/
 *.sqlite
 *.sqlite3
 *.db

@@ -4,6 +4,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from env_loader import load_repo_env
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAIN_DIR = ROOT / "brain"
@@ -111,6 +112,7 @@ def print_pass_summaries(report):
 
 
 def main():
+    load_repo_env()
     parser = argparse.ArgumentParser(description="Run repeated historical training passes across many assets.")
     parser.add_argument("--data-dir", default="data/fixtures")
     parser.add_argument("--pattern", default="*.csv")

@@ -92,7 +92,7 @@ Run three historical training passes across every CSV in a data directory:
 python lab/trainer.py --data-dir data/fixtures --passes 3 --report run/latest_training_report.json
 ```
 
-Generate a mock Lab rewrite candidate:
+Generate a Lab rewrite candidate:
 
 ```bash
 python lab/evolver.py --mistakes run/latest_training_report.json --strategy brain/strategy.py
@@ -101,9 +101,164 @@ python lab/evolver.py --mistakes run/latest_training_report.json --strategy brai
 Run the service stack target:
 
 ```bash
-ollama pull deepseek-coder-v2
 cp .env.template .env
 docker-compose up --build
+```
+
+For a real model-backed rewrite run, set `LLM_PROVIDER=onyx` and configure `ONYX_BASE_URL`, `ONYX_MODEL`, plus either `ONYX_TOKEN` or `ONYX_KEY` and `ONYX_SECRET` in `.env`. The default `mock` provider stays useful for offline development.
+
+For your self-hosted Onyx app running at `http://localhost:3000`, use:
+
+```bash
+LLM_PROVIDER=onyx
+ONYX_BASE_URL=http://localhost:3000
+ONYX_API_MODE=app
+ONYX_TOKEN=your_onyx_api_key
+```
+
+If your Onyx admin has a default text model configured, you can leave `ONYX_MODEL` blank. If you want to override the model per request, set `ONYX_MODEL` to the actual underlying model version configured in Onyx, not a generic label like `onyx-chat`.
+
+When the Lab runs inside Docker, use `http://host.docker.internal:3000` instead of `http://localhost:3000` so the container can reach your host machine.
+
+## Reproducible Onyx + Ollama Setup
+
+This is the exact local topology that was verified to work for this repository:
+
+```text
+Repo scripts -> Onyx API at http://localhost:3000
+Onyx backend -> Ollama at http://host.docker.internal:11434
+Ollama models stored under %USERPROFILE%\.ollama\models
+```
+
+The repo does not talk to Ollama directly. The repo talks to Onyx. Onyx talks to Ollama.
+
+### 1. Install and verify Ollama on Windows
+
+Install Ollama on the Windows host. If `ollama` is not on your `PATH`, the default binary is typically:
+
+```powershell
+C:\Users\<your-user>\AppData\Local\Programs\Ollama\ollama.exe
+```
+
+Pull a coding model:
+
+```powershell
+& 'C:\Users\<your-user>\AppData\Local\Programs\Ollama\ollama.exe' pull qwen2.5-coder:7b
+```
+
+Verify the model is available:
+
+```powershell
+& 'C:\Users\<your-user>\AppData\Local\Programs\Ollama\ollama.exe' list
+```
+
+Or verify the Ollama HTTP API directly:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:11434/api/tags
+```
+
+Expected result: `qwen2.5-coder:7b` appears in the model list.
+
+### 2. Run Onyx
+
+Run Onyx locally. The verified setup here used Docker and exposed Onyx on:
+
+```text
+http://localhost:3000
+```
+
+If Onyx is running in Docker, do not point it at `127.0.0.1:11434` for Ollama. Inside the container, `127.0.0.1` is the container itself, not the Windows host.
+
+### 3. Configure Ollama inside Onyx
+
+In Onyx:
+
+1. Open `Admin -> Language Models`
+2. Add provider: `Ollama`
+3. Use the Ollama base URL:
+
+```text
+http://host.docker.internal:11434
+```
+
+Use `http://localhost:11434` only if Onyx itself is running directly on Windows rather than in Docker.
+
+4. Click `Fetch Available Models`
+5. Confirm `qwen2.5-coder:7b` appears
+6. Save the provider
+7. Set `qwen2.5-coder:7b` as the default text model
+
+### 3a. Re-check Onyx settings after Docker startup
+
+If Onyx is started, restarted, or recreated with Docker, re-open `Admin -> Language Models` before running the Lab and confirm:
+
+1. The Ollama provider still exists
+2. The Ollama base URL is still:
+
+```text
+http://host.docker.internal:11434
+```
+
+3. `qwen2.5-coder:7b` still appears in the fetched model list
+4. `qwen2.5-coder:7b` is still the default text model
+
+Do not assume `127.0.0.1:11434` will work from Onyx when Onyx is running in Docker. That address only points back to the container itself.
+
+### 4. Create the Onyx service account key
+
+In Onyx:
+
+1. Open `Admin -> Integrations -> Service Accounts`
+2. Generate a service account key
+3. Keep that key for the repo `.env`
+
+### 5. Configure the repository `.env`
+
+Create `.env` in the repo root:
+
+```text
+C:\laragon\www\dotnet\AI-Trading-Margin-Visualizer\.env
+```
+
+Recommended contents:
+
+```bash
+LLM_PROVIDER=onyx
+ONYX_BASE_URL=http://localhost:3000
+ONYX_API_MODE=app
+ONYX_MODEL=
+ONYX_TOKEN=your_service_account_key
+```
+
+Important notes:
+
+- Keep `ONYX_MODEL=` blank if Onyx already has a default text model configured.
+- Do not put the Ollama URL in the repo `.env`. The repo should point to Onyx, not Ollama.
+- `.env` is ignored by Git in this repository.
+
+### 6. Verify the full chain
+
+Run:
+
+```powershell
+python lab/evolver.py --provider onyx --mistakes run/latest_training_report.json --strategy brain/strategy.py
+```
+
+Expected result:
+
+```json
+{
+  "provider": "onyx",
+  "candidate": "lab\\candidates\\strategy_candidate.py",
+  "status": "candidate_written"
+}
+```
+
+That confirms this chain is working:
+
+```text
+repo script -> Onyx -> Ollama -> candidate file written
 ```
 
 Current Mirror endpoints:

@@ -40,7 +40,14 @@ services:
     command: ["python", "trainer.py", "--data-dir", "/workspace/data/fixtures", "--passes", "${TRAINING_PASSES:-3}", "--report", "/workspace/run/latest_training_report.json"]
     environment:
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
-      LLM_MODEL: ${LLM_MODEL:-deepseek-coder-v2}
+      LLM_MODEL: ${LLM_MODEL:-onyx-chat}
+      ONYX_BASE_URL: ${ONYX_BASE_URL:-http://host.docker.internal:3000}
+      ONYX_API_MODE: ${ONYX_API_MODE:-app}
+      ONYX_MODEL: ${ONYX_MODEL:-onyx-chat}
+      ONYX_TOKEN: ${ONYX_TOKEN:-}
+      ONYX_KEY: ${ONYX_KEY:-}
+      ONYX_SECRET: ${ONYX_SECRET:-}
+      ONYX_DATABASE_ID: ${ONYX_DATABASE_ID:-}
     volumes:
       - ./brain:/workspace/brain
       - ./data:/workspace/data:ro
