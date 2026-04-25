@@ -79,6 +79,9 @@ const equityCtx = equityCanvas.getContext('2d');
 const storageKey = 'ai-margin-visualizer-snapshots';
 let latestState = null;
 let replayTimer = null;
+const strategyApiBase = window.location.protocol.startsWith('http')
+  ? `${window.location.protocol}//${window.location.hostname}:3201`
+  : 'http://localhost:3201';
 
 const replay = {
   running: false,
@@ -94,6 +97,13 @@ const replay = {
   equitySeries: [],
   generation: 3,
   baseTime: new Date('2024-01-02T09:30:00Z')
+};
+
+const strategyFeed = {
+  active: null,
+  history: [],
+  error: '',
+  loaded: false
 };
 
 function getDirection() {
@@ -463,11 +473,108 @@ function renderEventList() {
   `).join('');
 }
 
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function loadStrategyFeed() {
+  try {
+    const [active, history] = await Promise.all([
+      fetchJson(`${strategyApiBase}/strategy/active`),
+      fetchJson(`${strategyApiBase}/strategy/history?limit=8`)
+    ]);
+    strategyFeed.active = active;
+    strategyFeed.history = Array.isArray(history.items) ? history.items : [];
+    strategyFeed.error = '';
+    strategyFeed.loaded = true;
+    if (Number.isFinite(active.generation)) {
+      replay.generation = active.generation;
+    }
+  } catch (error) {
+    strategyFeed.error = error.message;
+    strategyFeed.loaded = true;
+  }
+  renderTimeline();
+}
+
+function formatTimelineTimestamp(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function renderStrategyFeedTimeline() {
+  const testing = replay.mistakes.length > 0;
+  const active = strategyFeed.active;
+  if (!active) return false;
+
+  output.strategyGen.textContent = `Gen ${active.generation}`;
+  if (testing) {
+    output.strategyState.textContent = 'Candidate queued';
+  } else if (active.selection_source === 'env_override') {
+    output.strategyState.textContent = `Pinned by .env (${active.generation_id.toUpperCase()})`;
+  } else {
+    output.strategyState.textContent = active.validation_status === 'promoted' ? 'Promoted active' : 'Config active';
+  }
+
+  const summaryParts = [`${active.generation_id.toUpperCase()} active`];
+  if (strategyFeed.history.length) summaryParts.push(`${strategyFeed.history.length} versions`);
+  if (active.db_status === 'fallback') summaryParts.push('local fallback');
+  output.timelineSummary.textContent = summaryParts.join(' | ');
+
+  const items = strategyFeed.history.map((item) => {
+    const metaParts = [];
+    if (item.validation_status) metaParts.push(item.validation_status);
+    if (item.approval_reason) metaParts.push(item.approval_reason);
+    const stamped = formatTimelineTimestamp(item.promoted_at);
+    if (stamped) metaParts.push(stamped);
+    if (item.strategy_path) metaParts.push(item.strategy_path);
+    return {
+      title: `Gen ${item.generation} - ${item.name || item.generation_id.toUpperCase()}`,
+      meta: metaParts.join(' | ') || 'No promotion metadata recorded yet.',
+      cls: item.selected || item.is_active ? 'deployed' : ''
+    };
+  });
+
+  if (testing) {
+    items.unshift({
+      title: `Candidate ${active.generation + 1} - queued`,
+      meta: `${replay.mistakes.length} mistake signal${replay.mistakes.length === 1 ? '' : 's'} queued for sandbox replay.`,
+      cls: 'testing'
+    });
+  }
+
+  output.strategyTimeline.innerHTML = items.map((item) => `
+    <article class="timeline-item ${item.cls}">
+      <strong>${item.title}</strong>
+      <span>${item.meta}</span>
+    </article>
+  `).join('');
+  return true;
+}
+
 function renderTimeline() {
+  if (renderStrategyFeedTimeline()) return;
+
   const testing = replay.mistakes.length > 0;
   output.strategyGen.textContent = `Gen ${replay.generation}`;
-  output.strategyState.textContent = testing ? 'Candidate queued' : 'Baseline active';
-  output.timelineSummary.textContent = testing ? 'Candidate 4 queued' : `Gen ${replay.generation} active`;
+  if (strategyFeed.error) {
+    output.strategyState.textContent = 'Brain API unavailable';
+    output.timelineSummary.textContent = 'Local mock timeline';
+  } else {
+    output.strategyState.textContent = testing ? 'Candidate queued' : 'Baseline active';
+    output.timelineSummary.textContent = testing ? `Candidate ${replay.generation + 1} queued` : `Gen ${replay.generation} active`;
+  }
 
   const items = [
     { title: 'Gen 1 - Baseline ensemble', meta: 'Initial quant, neural, and sentiment blend.', cls: 'deployed' },
@@ -783,3 +890,5 @@ document.getElementById('clearLogButton').addEventListener('click', () => {
 
 renderSnapshots();
 render();
+loadStrategyFeed();
+window.setInterval(loadStrategyFeed, 30000);

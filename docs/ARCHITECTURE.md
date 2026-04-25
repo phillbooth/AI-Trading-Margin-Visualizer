@@ -15,8 +15,9 @@ Primary responsibilities:
 - Produce buy, sell, hold, or risk-reduction decisions.
 - Log every decision with its full feature context.
 - Expose a narrow strategy interface that the Lab is allowed to modify.
+- Expose a read-only API for active strategy selection and promoted generation history.
 
-The first AI-rewritable surface should be `brain/strategy.py`. Shared infrastructure, broker adapters, database clients, and state management should remain outside the rewrite surface.
+The first AI-rewritable surface should be the active version file under `brain/versions/`. `brain/strategy.py` should remain a stable loader so the rest of the application keeps a fixed import path. Shared infrastructure, broker adapters, database clients, and state management should remain outside the rewrite surface.
 
 ### Mirror: Node.js Simulation Service
 
@@ -60,8 +61,9 @@ Primary responsibilities:
 ## Data Flow
 
 ```text
-Historical data -> Mirror -> Brain -> Database -> UI
-                         |       |
+Historical data -> Mirror -> Brain -> Database
+                         |       |         |
+                         |       |         `-> Brain API -> UI
                          |       `-> Mistake logs -> Lab -> Candidate strategy
                          |                                |
                          `-------- Sandbox replay <--------`
@@ -72,8 +74,10 @@ Historical data -> Mirror -> Brain -> Database -> UI
 The Lab must not rewrite the whole application. It should only generate candidate changes for a controlled strategy module or method. The first target is:
 
 ```text
-brain/strategy.py
+brain/versions/strategy_gNNNN.py
 ```
+
+`brain/strategy.py` should load the active generation selected by configuration rather than being overwritten directly.
 
 Recommended guardrails:
 

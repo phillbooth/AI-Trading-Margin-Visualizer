@@ -25,10 +25,21 @@ services:
   brain:
     build:
       context: ./brain
+    command: ["python", "api_server.py"]
     environment:
       HISTORICAL_DATA_PATH: /app/data/sample_stock_ohlcv.csv
       IS_PAPER_TRADING: "true"
+      BRAIN_API_PORT: ${BRAIN_API_PORT:-3201}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-neural_twin}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "${BRAIN_API_PORT:-3201}:${BRAIN_API_PORT:-3201}"
     volumes:
+      - ./brain:/app
+      - ./config:/app/config
       - ./data/fixtures:/app/data:ro
       - ./run:/app/run
     depends_on:
@@ -48,8 +59,14 @@ services:
       ONYX_KEY: ${ONYX_KEY:-}
       ONYX_SECRET: ${ONYX_SECRET:-}
       ONYX_DATABASE_ID: ${ONYX_DATABASE_ID:-}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-neural_twin}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
       - ./brain:/workspace/brain
+      - ./config:/workspace/config
       - ./data:/workspace/data:ro
       - ./lab:/workspace/lab
       - ./run:/workspace/run

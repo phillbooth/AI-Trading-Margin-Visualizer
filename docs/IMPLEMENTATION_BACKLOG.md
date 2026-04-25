@@ -26,6 +26,7 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 - Subscribe to Mirror WebSocket events.
 - [x] Implement simple ensemble scoring with Quant, Neural placeholder, and Sentiment placeholder signals.
 - [x] Run a historical next-candle prediction backtest against a CSV fixture.
+- [x] Expose a read-only Brain API for active strategy state and generation history.
 - Emit paper decisions only.
 - Persist decisions, PnL, and state to Postgres.
 - Add graceful shutdown state save.
@@ -38,16 +39,20 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 - [x] Implement Onyx provider skeleton.
 - [x] Save candidates under ignored `lab/candidates/`.
 - [x] Validate candidate syntax and interface.
+- [x] Compare baseline vs candidate and return a verdict.
+- [x] Promote passing candidates into immutable `brain/versions/strategy_gNNNN.py` files.
+- [x] Persist promoted generation metadata and active state to Postgres when available.
 - Run sandbox replay against Mirror deterministic mode.
 - Commit approved changes to Git.
 
 ## Phase 5: UI MVP
 
-- Show simulation clock, status, and current asset.
-- Show price chart and equity curve.
-- Show positions and decision log.
-- Show mistake log table.
-- Show strategy generation timeline.
+- [x] Show simulation clock, status, and current asset.
+- [x] Show price chart and equity curve.
+- [x] Show positions and decision log.
+- [x] Show mistake log table.
+- [x] Show strategy generation timeline.
+- [x] Read strategy generation timeline from the Brain API when available, with local fallback.
 
 ## Phase 6: Safety Hardening
 
@@ -67,11 +72,12 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 
 ## First Code Task Recommendation
 
-The repository has completed the initial scaffolding pass. The next concrete task should be:
+The repository has moved past the initial scaffolding pass. The next concrete task should be:
 
 - Add a real stock data adapter that writes five-year daily OHLCV CSV files into ignored `data/historical/`.
 - Teach Mirror to replay files from `data/historical/` by symbol and date range.
 - Persist Brain backtest predictions and mistake logs into Postgres.
-- Add a sandbox comparison command that runs baseline and candidate strategies on the same historical window.
+- Persist decisions and backtest runs into Postgres.
+- Replace the remaining local replay-only decision and mistake UI history with database-backed records.
 
-That gives the Lab real evidence for deciding whether a rewrite made the strategy better or just overfit the sample.
+That gives the Lab real evidence for deciding whether a rewrite made the strategy better or just overfit the sample, and it moves the UI from prototype-only event history to real run history.

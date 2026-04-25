@@ -5,4 +5,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
-CMD ["python", "main.py", "--data", "/app/data/sample_stock_ohlcv.csv", "--report", "/app/run/latest_backtest.json"]
+CMD ["python", "api_server.py"]

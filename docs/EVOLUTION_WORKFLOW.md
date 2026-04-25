@@ -25,14 +25,15 @@ A strategy generation should include:
 4. Record prediction context, actual outcome, paper equity, drawdown, and any mistake.
 5. Repeat across all configured assets and all configured passes.
 6. At a checkpoint, decide whether there is enough evidence to attempt a rewrite.
-7. Read the current strategy rewrite surface.
+7. Resolve the active strategy version and read that rewrite surface.
 8. Ask the configured LLM for a constrained change.
 9. Save the result as a candidate strategy.
 10. Run syntax checks and static checks.
 11. Run deterministic Mirror replays in the sandbox.
 12. Compare candidate results against the current production strategy on the same windows plus out-of-sample windows.
 13. Promote only if the candidate passes all thresholds.
-14. Commit the approved change and notify the UI.
+14. Back up the current active strategy, write a new immutable strategy version, update the active strategy pointer, and write a promotion manifest.
+15. Commit the approved change and notify the UI.
 
 The system should learn from every prediction, but production code should not be rewritten after every candle. Per-candle self-modification makes the run unstable and encourages overfitting. The safe pattern is: record every outcome, batch evidence into checkpoints, generate a candidate, test it against baseline, then promote only if it improves risk-adjusted performance.
 
@@ -59,6 +60,20 @@ Session outputs:
 
 The first runnable implementation is `lab/trainer.py`.
 
+Current v1 automation flow:
+
+- `lab/trainer.py` writes the current training report before requesting a rewrite so the evolver always sees the current mistakes rather than a stale report.
+- If the rewrite recommendation is `queue_candidate`, the trainer calls `lab/evolver.py` and then `lab/compare.py`.
+- If the comparison verdict is `promote_candidate`, the trainer calls `lab/promote.py` unless you pass `--no-auto-promote`.
+- Promotion writes a new `brain/versions/strategy_gNNNN.py`, updates `config/active_strategy.json`, stores a backup snapshot of the previous active version, and writes a manifest under `run/promotions/` plus `run/latest_promotion_report.json`.
+- After promotion, `lab/promote.py` attempts to upsert the promoted generation into Postgres. Database sync status is recorded in the promotion manifest and does not silently replace the file-system promotion result.
+- `ACTIVE_STRATEGY_GENERATION` can override the configured active version for replay and debugging, but normal selection should come from `config/active_strategy.json`.
+
+Current read path:
+
+- The Brain API reads active generation and generation history from Postgres when it can.
+- If Postgres is unavailable, the Brain API falls back to `config/active_strategy.json` and local version files so the UI can still render strategy history.
+
 ## Candidate Validation
 
 Minimum checks for v1:
@@ -74,6 +89,8 @@ Minimum checks for v1:
 ## Rollback
 
 Rollback should be explicit and auditable. Prefer `git revert` for promoted strategy commits so history remains intact.
+
+Before Git-backed rollback exists, the v1 promoter keeps local backup copies in `run/promotions/`. That is a recovery aid, not a substitute for real versioned rollback.
 
 Manual rollback flow:
 

@@ -10,8 +10,8 @@ Use Python 3.11.x for the Brain and Lab services. It is a stable target for comm
 
 Recommended packages:
 
-- `pandas` and `numpy` for vectorized market calculations.
-- `requests` or `httpx` for service and LLM calls.
+- `psycopg[binary]` for Postgres reads and writes in the current Brain and Lab services.
+- `requests` or `httpx` later, if you replace the current standard-library HTTP calls.
 - `GitPython` for Git operations from the Lab.
 - `pydantic` for typed config and event payload validation.
 - `pytest` for unit and integration tests.
@@ -48,32 +48,53 @@ Commit `.env.template` and ignore `.env`.
 Suggested template:
 
 ```bash
-# LLM config
+# Required for the default local Onyx setup
 LLM_PROVIDER=onyx
 ONYX_BASE_URL=http://localhost:3000
 ONYX_API_MODE=app
-ONYX_MODEL=
 ONYX_TOKEN=replace_me
+
+# Optional overrides
+# Onyx model and auth overrides
+ONYX_MODEL=
 ONYX_KEY=
 ONYX_SECRET=
+ONYX_DATABASE_ID=
 LLM_MODEL=
 
-# Exchange config
-EXCHANGE_API_KEY=your_key_here
-EXCHANGE_SECRET=your_secret_here
-IS_PAPER_TRADING=true
+# Strategy selection override
+# Leave blank in normal operation so config/active_strategy.json controls the active generation.
+ACTIVE_STRATEGY_GENERATION=
 
-# Simulation config
+# Runtime and replay settings
+IS_PAPER_TRADING=true
+BRAIN_API_PORT=3201
 SIM_START_DATE=2021-01-01
 SIM_SPEED=10x
+HISTORICAL_DATA_PATH=data/fixtures/sample_stock_ohlcv.csv
 
-# Database config
+# Evolution limits
+TRAINING_PASSES=3
+MAX_EVOLUTION_ATTEMPTS_PER_DAY=3
+MAX_DRAWDOWN_PCT=12
+MAX_POSITION_SIZE_PCT=20
+MAX_TRADES_PER_DAY=8
+
+# Database overrides
 POSTGRES_HOST=db
 POSTGRES_PORT=5432
 POSTGRES_DB=neural_twin
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=password
 ```
+
+Current selection order for the active strategy is:
+
+1. `ACTIVE_STRATEGY_GENERATION` if set
+2. `config/active_strategy.json`
+3. fallback `g0001`
+
+Do not infer the active strategy from the latest modified file in `brain/versions/`.
 
 Recommended `.gitignore` entries:
 
@@ -152,6 +173,16 @@ CREATE TABLE commodity_metrics (
 );
 ```
 
+The current repo also persists promoted strategy generations into `strategy_generations`, including:
+
+- `strategy_path`
+- `comparison_report`
+- `promotion_manifest`
+- `is_active`
+- `promoted_at`
+
+The Brain API reads those rows for the UI timeline and falls back to `config/active_strategy.json` plus local version files when Postgres is unavailable.
+
 ## Market Data Sources
 
 Use source adapters so the Brain never depends directly on a vendor API.
@@ -182,6 +213,10 @@ After Docker starts or restarts, verify in `Admin -> Language Models` that:
 - the Ollama provider still points to `http://host.docker.internal:11434`
 - the expected Ollama model is visible
 - the default text model is still set
+
+## Postgres Migration Note
+
+If you already have an existing Postgres data volume, changes in [db/init.sql](../db/init.sql) are not replayed automatically on container restart. Apply the new `ALTER TABLE` and `CREATE INDEX` statements manually or recreate the volume when you want a clean bootstrapped database.
 
 ## Graceful Shutdown
 

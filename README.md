@@ -16,12 +16,13 @@ Current app features:
 - Local paper replay controls for run, pause, step, reset, and replay speed.
 - Paper equity curve, open position state, simulated drawdown, and replay price tape.
 - Decision log, mistake log, and strategy generation timeline to preview the future command center workflow.
+- Strategy generation timeline now reads the Brain strategy API when it is available, with a local fallback when the API or database is down.
 - Stress scenario table for favorable, adverse, stop, shock, and liquidation outcomes.
 - Local snapshot log stored in browser storage.
 
 Neural-Twin is a four-service framework for simulating, executing, and evolving trading strategies across crypto, stocks, commodities, and other asset classes. The system is designed around a controlled simulation loop: a Mirror service replays historical markets as if they are live, a Brain service makes paper-trading predictions and decisions, a Lab service proposes strategy improvements, and a UI service shows the current state of the system.
 
-The core concept is to load historical market data, such as the last five years of stock candles, and make the Brain predict the next move as though the future is unknown. Because the replay is historical, the system can immediately score each prediction against what actually happened. Mistakes and correct calls become training evidence for the Lab, which asks an LLM or mock provider for a constrained rewrite of `brain/strategy.py`, validates it in a sandbox, and only promotes changes that improve backtest results.
+The core concept is to load historical market data, such as the last five years of stock candles, and make the Brain predict the next move as though the future is unknown. Because the replay is historical, the system can immediately score each prediction against what actually happened. Mistakes and correct calls become training evidence for the Lab, which asks an LLM or mock provider for a constrained rewrite of the active strategy version under `brain/versions/`, validates it in a sandbox, compares it against the baseline, and only promotes changes that clear the configured thresholds.
 
 A typical training run should be able to replay many assets many times. For example, ten stocks with five years of candles can be run through three passes. Each pass records predictions, actual outcomes, drawdown, paper equity, and mistakes. The Lab then decides whether to hold the current strategy or queue a candidate rewrite at a checkpoint. Production strategy code should not be rewritten after every candle; it should be rewritten, tested, compared, and promoted through a controlled validation gate.
 
@@ -40,6 +41,23 @@ This repository now contains the planned service folders, configuration files, d
 - Decoupled Services: the Lab may rewrite Brain strategy code, but the Mirror and UI remain isolated from those changes.
 - Persistence First: simulation clock, portfolio state, market data, mistakes, and strategy versions must survive restarts.
 
+## Strategy Versioning
+
+Promoted strategies are versioned explicitly. The system does not auto-select the newest file on disk.
+
+- `brain/strategy.py` is a stable loader and import target for the rest of the app.
+- `brain/versions/strategy_gNNNN.py` stores immutable promoted strategy versions.
+- `config/active_strategy.json` is the default active strategy pointer.
+- `ACTIVE_STRATEGY_GENERATION` in `.env` is an override for testing and replay.
+
+Selection order is:
+
+1. `ACTIVE_STRATEGY_GENERATION` if set
+2. `config/active_strategy.json`
+3. fallback `g0001`
+
+This keeps runs reproducible across machines and Git checkouts. Do not treat "latest modified file" as the active strategy.
+
 ## Planned Service Map
 
 ```text
@@ -50,16 +68,25 @@ This repository now contains the planned service folders, configuration files, d
 |-- docker-compose.yml  # Orchestrates all services
 |-- brain/              # Service 1: Python trading execution
 |   |-- main.py         # Trading loop
-|   |-- strategy.py     # AI-rewritable logic surface
+|   |-- api_server.py   # Read-only strategy history API
+|   |-- db.py           # Postgres reads with local fallback
+|   |-- strategy.py     # Stable loader for the active strategy version
+|   |-- strategy_registry.py # Active generation resolution and version registry
+|   |-- versions/       # Immutable promoted strategy generations
 |   |-- ensemble.py     # Quant, neural, and sentiment consensus math
 |   `-- requirements.txt
+|-- config/
+|   `-- active_strategy.json # Default active generation pointer
 |-- mirror/             # Service 2: Node.js market simulator
 |   |-- server.js       # WebSocket and REST API
 |   |-- engine.js       # Playback, pause, and skip controls
 |   `-- data/           # Historical CSV/Parquet files, ignored by Git
 |-- lab/                # Service 3: Python evolution engine
+|   |-- db_sync.py      # Postgres write-side sync for promotions
 |   |-- evolver.py      # LLM interface and Git manager
 |   |-- trainer.py      # Multi-asset, multi-pass historical training loop
+|   |-- compare.py      # Baseline vs candidate evaluation
+|   |-- promote.py      # Gated strategy promotion with backup manifest
 |   |-- sandbox.py      # Isolated test runner
 |   `-- prompts.py      # Code-generation prompts and policies
 |-- ui/                 # Service 4: Vue command center
@@ -86,11 +113,21 @@ Run the first historical prediction backtest:
 python brain/main.py --data data/fixtures/sample_stock_ohlcv.csv
 ```
 
+Run the Brain strategy history API used by the prototype timeline:
+
+```bash
+python brain/api_server.py
+```
+
 Run three historical training passes across every CSV in a data directory:
 
 ```bash
 python lab/trainer.py --data-dir data/fixtures --passes 3 --report run/latest_training_report.json
 ```
+
+When a run queues a rewrite, `lab/trainer.py` now writes the current training report, generates a candidate from the active strategy version, compares it against the current strategy, and auto-promotes only when the comparison verdict is `promote_candidate`. Promotion writes a new immutable `brain/versions/strategy_gNNNN.py` file and updates `config/active_strategy.json`. Use `--no-auto-promote` if you want the trainer to stop after verdicting.
+
+When Postgres is available, promotion also upserts the promoted generation into `strategy_generations` and marks it active there. The Brain API reads Postgres for strategy history, but falls back to local config and version files if the database is unavailable.
 
 Generate a Lab rewrite candidate:
 
@@ -98,12 +135,30 @@ Generate a Lab rewrite candidate:
 python lab/evolver.py --mistakes run/latest_training_report.json --strategy brain/strategy.py
 ```
 
+Passing `--strategy brain/strategy.py` is still valid. The evolver resolves that loader to the active version file before building the rewrite prompt.
+
+Compare the current strategy to the latest candidate:
+
+```bash
+python lab/compare.py --data-dir data/fixtures --candidate lab/candidates/strategy_candidate.py --passes 3 --report run/latest_comparison_report.json
+```
+
+Promote a winning candidate manually:
+
+```bash
+python lab/promote.py --candidate lab/candidates/strategy_candidate.py --comparison-report run/latest_comparison_report.json
+```
+
+Manual promotion creates the next `brain/versions/strategy_gNNNN.py`, updates `config/active_strategy.json`, and writes a local promotion manifest under `run/promotions/`.
+
 Run the service stack target:
 
 ```bash
 cp .env.template .env
 docker-compose up --build
 ```
+
+`.env.template` is organized into a small required section for the default local Onyx setup and a larger optional override section for model, strategy, runtime, and database overrides.
 
 For a real model-backed rewrite run, set `LLM_PROVIDER=onyx` and configure `ONYX_BASE_URL`, `ONYX_MODEL`, plus either `ONYX_TOKEN` or `ONYX_KEY` and `ONYX_SECRET` in `.env`. The default `mock` provider stays useful for offline development.
 
@@ -227,6 +282,7 @@ Recommended contents:
 LLM_PROVIDER=onyx
 ONYX_BASE_URL=http://localhost:3000
 ONYX_API_MODE=app
+ACTIVE_STRATEGY_GENERATION=
 ONYX_MODEL=
 ONYX_TOKEN=your_service_account_key
 ```
@@ -234,8 +290,17 @@ ONYX_TOKEN=your_service_account_key
 Important notes:
 
 - Keep `ONYX_MODEL=` blank if Onyx already has a default text model configured.
+- Keep `ACTIVE_STRATEGY_GENERATION=` blank in normal operation so the repo uses `config/active_strategy.json`.
+- Set `ACTIVE_STRATEGY_GENERATION=g0002` only when you want to pin a specific promoted version for testing.
 - Do not put the Ollama URL in the repo `.env`. The repo should point to Onyx, not Ollama.
 - `.env` is ignored by Git in this repository.
+
+### 5a. Existing Postgres volumes
+
+If you already have a persisted `pgdata` volume from an older version of the repo, the new `strategy_generations` columns and indexes in [db/init.sql](db/init.sql) will not be applied automatically. Either:
+
+1. recreate the Postgres volume, or
+2. run the `ALTER TABLE` and `CREATE INDEX` statements from [db/init.sql](db/init.sql) manually against the existing database.
 
 ### 6. Verify the full chain
 
@@ -271,6 +336,14 @@ Current Mirror endpoints:
 - `GET /resume`
 - `GET /reset`
 
+Current Brain endpoints:
+
+- `GET /health`
+- `GET /strategy/active`
+- `GET /strategy/history?limit=8`
+
+The Brain API prefers Postgres-backed strategy history and active-generation metadata, but it falls back to `config/active_strategy.json` plus local `brain/versions/` files when the database is unavailable.
+
 ## Initial Documentation
 
 - [Architecture](docs/ARCHITECTURE.md): service boundaries, data flow, and safe-rewrite model.
@@ -285,7 +358,7 @@ This project should begin as a paper-trading and simulation system only. Live ex
 
 ## Next Implementation Step
 
-Replace the small committed fixture with a real five-year historical data adapter for multiple symbols, then wire Brain results into Postgres so the UI can read real prediction, mistake, and generation records.
+Replace the small committed fixture with a real five-year historical data adapter for multiple symbols, then persist predictions, decisions, mistake logs, and backtest runs so the UI can stop using local replay-only event history.
 
 ## License
 

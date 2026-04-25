@@ -1,5 +1,7 @@
 import argparse
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +15,11 @@ if str(BRAIN_DIR) not in sys.path:
 
 from backtest import load_candles, run_backtest, summarize_results  # noqa: E402
 from strategy import Strategy  # noqa: E402
+
+
+def resolve_repo_path(path_value):
+    path = Path(path_value)
+    return path if path.is_absolute() else ROOT / path
 
 
 def discover_data_files(data_dir, pattern):
@@ -76,6 +83,89 @@ def build_training_report(args, data_files):
     }
 
 
+def maybe_run_evolution(args, report, report_path):
+    if report["final_summary"]["rewrite_recommendation"] != "queue_candidate":
+        return None
+
+    candidate_path = resolve_repo_path(args.candidate)
+    comparison_path = resolve_repo_path(args.comparison_report)
+    promotion_path = resolve_repo_path(args.promotion_report)
+
+    evolver_cmd = [
+        sys.executable,
+        str(ROOT / "lab" / "evolver.py"),
+        "--provider",
+        args.provider,
+        "--mistakes",
+        str(report_path),
+        "--strategy",
+        str(ROOT / "brain" / "strategy.py"),
+        "--candidate",
+        str(candidate_path),
+    ]
+    subprocess.run(evolver_cmd, check=True, cwd=ROOT)
+
+    compare_cmd = [
+        sys.executable,
+        str(ROOT / "lab" / "compare.py"),
+        "--data-dir",
+        args.data_dir,
+        "--pattern",
+        args.pattern,
+        "--candidate",
+        str(candidate_path),
+        "--passes",
+        str(args.passes),
+        "--window",
+        str(args.window),
+        "--starting-equity",
+        str(args.starting_equity),
+        "--report",
+        str(comparison_path.relative_to(ROOT)),
+    ]
+    subprocess.run(compare_cmd, check=True, cwd=ROOT)
+
+    comparison_data = json.loads(comparison_path.read_text(encoding="utf-8"))
+    auto_evolution = {
+        "candidate_path": str(candidate_path),
+        "comparison_report": str(comparison_path),
+        "verdict": comparison_data.get("verdict", {}),
+    }
+
+    verdict_name = auto_evolution["verdict"].get("verdict")
+    if not args.auto_promote:
+        auto_evolution["promotion"] = {
+            "status": "skipped",
+            "reason": "auto_promotion_disabled",
+        }
+        return auto_evolution
+
+    if verdict_name != "promote_candidate":
+        auto_evolution["promotion"] = {
+            "status": "skipped",
+            "reason": f"verdict_{verdict_name or 'unknown'}",
+        }
+        return auto_evolution
+
+    promote_cmd = [
+        sys.executable,
+        str(ROOT / "lab" / "promote.py"),
+        "--candidate",
+        str(candidate_path),
+        "--strategy",
+        str(ROOT / "brain" / "strategy.py"),
+        "--comparison-report",
+        str(comparison_path),
+        "--manifest",
+        str(promotion_path),
+        "--archive-dir",
+        args.promotion_archive_dir,
+    ]
+    subprocess.run(promote_cmd, check=True, cwd=ROOT)
+    auto_evolution["promotion"] = json.loads(promotion_path.read_text(encoding="utf-8"))
+    return auto_evolution
+
+
 def rewrite_recommendation(summary, args):
     if summary["prediction_count"] == 0:
         return "no_data"
@@ -101,14 +191,19 @@ def print_pass_summaries(report):
         )
 
     final = report["final_summary"]
-    print(json.dumps({
+    summary = {
         "passes": final["passes"],
         "prediction_count": final["prediction_count"],
         "accuracy": final["accuracy"],
         "mistake_count": final["mistake_count"],
         "max_drawdown_pct": final["max_drawdown_pct"],
         "rewrite_recommendation": final["rewrite_recommendation"],
-    }, indent=2))
+    }
+    auto_evolution = report.get("auto_evolution")
+    if auto_evolution:
+        summary["candidate_verdict"] = auto_evolution.get("verdict", {}).get("verdict")
+        summary["promotion_status"] = auto_evolution.get("promotion", {}).get("status")
+    print(json.dumps(summary, indent=2))
 
 
 def main():
@@ -120,9 +215,17 @@ def main():
     parser.add_argument("--window", type=int, default=5)
     parser.add_argument("--starting-equity", type=float, default=10000)
     parser.add_argument("--report", default="run/latest_training_report.json")
+    parser.add_argument("--provider", default=os.getenv("LLM_PROVIDER", "mock"))
+    parser.add_argument("--candidate", default="lab/candidates/strategy_candidate.py")
+    parser.add_argument("--comparison-report", default="run/latest_comparison_report.json")
+    parser.add_argument("--promotion-report", default="run/latest_promotion_report.json")
+    parser.add_argument("--promotion-archive-dir", default="run/promotions")
     parser.add_argument("--min-accuracy", type=float, default=0.52)
     parser.add_argument("--min-mistakes-for-rewrite", type=int, default=3)
     parser.add_argument("--max-drawdown-pct", type=float, default=12)
+    parser.add_argument("--auto-promote", dest="auto_promote", action="store_true")
+    parser.add_argument("--no-auto-promote", dest="auto_promote", action="store_false")
+    parser.set_defaults(auto_promote=True)
     args = parser.parse_args()
 
     data_files = discover_data_files(args.data_dir, args.pattern)
@@ -130,8 +233,12 @@ def main():
         raise SystemExit(f"No historical CSV files found in {args.data_dir} matching {args.pattern}.")
 
     report = build_training_report(args, data_files)
-    report_path = Path(args.report)
+    report_path = resolve_repo_path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    auto_evolution = maybe_run_evolution(args, report, report_path)
+    if auto_evolution:
+        report["auto_evolution"] = auto_evolution
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print_pass_summaries(report)
 

@@ -1,12 +1,20 @@
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 from env_loader import load_repo_env
 from prompts import build_rewrite_prompt
 from providers import call_onyx_chat
 from sandbox import validate_candidate_source, write_candidate
+
+ROOT = Path(__file__).resolve().parents[1]
+BRAIN_DIR = ROOT / "brain"
+if str(BRAIN_DIR) not in sys.path:
+    sys.path.insert(0, str(BRAIN_DIR))
+
+from strategy_registry import resolve_strategy_source_path  # noqa: E402
 
 
 MOCK_CANDIDATE = '''from ensemble import clamp, score_signals
@@ -83,7 +91,8 @@ def main():
     args = parser.parse_args()
 
     mistakes = load_mistakes(args.mistakes)
-    strategy_source = Path(args.strategy).read_text(encoding="utf-8") if Path(args.strategy).exists() else ""
+    strategy_source_path = resolve_strategy_source_path(args.strategy)
+    strategy_source = strategy_source_path.read_text(encoding="utf-8") if strategy_source_path.exists() else ""
     prompt = build_rewrite_prompt(mistakes, strategy_source)
     candidate_source = build_candidate_source(args.provider, prompt, args)
     validate_candidate_source(candidate_source)
@@ -92,6 +101,7 @@ def main():
     result = {
         "provider": args.provider,
         "candidate": str(candidate_path),
+        "strategy_source": str(strategy_source_path),
         "mistake_count": len(mistakes),
         "prompt_task": prompt["task"],
         "status": "candidate_written",

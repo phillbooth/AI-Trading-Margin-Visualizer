@@ -69,8 +69,31 @@ CREATE TABLE IF NOT EXISTS strategy_generations (
     baseline_metrics JSONB,
     candidate_metrics JSONB,
     approval_reason TEXT,
+    strategy_path TEXT,
+    candidate_snapshot_path TEXT,
+    comparison_report JSONB,
+    promotion_manifest JSONB,
+    source_provider VARCHAR(32),
+    is_active BOOLEAN NOT NULL DEFAULT FALSE,
+    promoted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE strategy_generations
+    ADD COLUMN IF NOT EXISTS strategy_path TEXT,
+    ADD COLUMN IF NOT EXISTS candidate_snapshot_path TEXT,
+    ADD COLUMN IF NOT EXISTS comparison_report JSONB,
+    ADD COLUMN IF NOT EXISTS promotion_manifest JSONB,
+    ADD COLUMN IF NOT EXISTS source_provider VARCHAR(32),
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS promoted_at TIMESTAMPTZ;
+
+CREATE UNIQUE INDEX IF NOT EXISTS strategy_generations_one_active_idx
+    ON strategy_generations (is_active)
+    WHERE is_active;
+
+CREATE INDEX IF NOT EXISTS strategy_generations_promoted_at_idx
+    ON strategy_generations (promoted_at DESC NULLS LAST, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS backtest_runs (
     id BIGSERIAL PRIMARY KEY,
