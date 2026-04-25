@@ -2,6 +2,20 @@
 
 Neural-Twin is split into four services so strategy evolution can happen without tightly coupling market replay, execution logic, and the operator UI.
 
+## Current Status
+
+The target architecture below is still only partially implemented.
+
+Current reality:
+
+- The browser UI is a static prototype under `ui/prototype/`, not a Vue app yet.
+- Only the strategy timeline is connected to a backend API today.
+- Mirror is implemented as a basic REST replay service, but the UI is still running its own local replay logic.
+- The Docker Brain service currently runs a read-only API, while historical prediction and training still run as CLI or batch processes.
+- The Brain API now also exposes a request-driven live-watch endpoint and a local demo broker, but these are still early scaffolding rather than a full streaming live-trading architecture.
+
+Treat the sections below as target service boundaries, not a claim that every runtime connection is already complete.
+
 ## Services
 
 ### Brain: Python Execution Service

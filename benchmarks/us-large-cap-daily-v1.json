@@ -1,0 +1,14 @@
+{
+  "name": "us-large-cap-daily-v1",
+  "symbols": ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"],
+  "data_dir": "data/historical",
+  "pattern": "*.csv",
+  "passes": 3,
+  "window": 5,
+  "starting_equity": 10000,
+  "min_accuracy": 0.52,
+  "min_mistakes_for_rewrite": 3,
+  "max_drawdown_pct": 12,
+  "auto_promote": true,
+  "contribution_dir": "run/contributions"
+}

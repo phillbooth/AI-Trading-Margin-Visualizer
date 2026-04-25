@@ -57,6 +57,7 @@ Session outputs:
 - Mistake count and mistake contexts.
 - Paper equity and drawdown.
 - Rewrite recommendation: hold current strategy or queue candidate.
+- Contribution artifact for reproducible sharing when benchmark mode is used.
 
 The first runnable implementation is `lab/trainer.py`.
 
@@ -65,9 +66,18 @@ Current v1 automation flow:
 - `lab/trainer.py` writes the current training report before requesting a rewrite so the evolver always sees the current mistakes rather than a stale report.
 - If the rewrite recommendation is `queue_candidate`, the trainer calls `lab/evolver.py` and then `lab/compare.py`.
 - If the comparison verdict is `promote_candidate`, the trainer calls `lab/promote.py` unless you pass `--no-auto-promote`.
+- `lab/continuous_runner.py` wraps that same trainer flow in a loop, with explicit `run/STOP`, `run/PAUSE`, `run/continuous.lock`, and `run/continuous_status.json` controls.
+- `lab/trainer.py --benchmark <file>` applies a committed benchmark pack so contributors can run the same symbol set and thresholds.
 - Promotion writes a new `brain/versions/strategy_gNNNN.py`, updates `config/active_strategy.json`, stores a backup snapshot of the previous active version, and writes a manifest under `run/promotions/` plus `run/latest_promotion_report.json`.
 - After promotion, `lab/promote.py` attempts to upsert the promoted generation into Postgres. Database sync status is recorded in the promotion manifest and does not silently replace the file-system promotion result.
 - `ACTIVE_STRATEGY_GENERATION` can override the configured active version for replay and debugging, but normal selection should come from `config/active_strategy.json`.
+- The trainer writes a contribution manifest under `run/contributions/` by default so result summaries can be shared without sharing local secrets.
+
+Continuous-loop operating rules:
+
+- `reject_candidate` and `hold_for_review` are normal outcomes. They are not runner failures.
+- The runner should stop only on an explicit stop file or after the configured consecutive failure limit is reached.
+- Continuous mode still targets historical replay and paper evolution only. It is not permission for unattended live trading.
 
 Current read path:
 

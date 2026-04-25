@@ -1,9 +1,9 @@
 import argparse
-import importlib.util
 import json
 import sys
 from pathlib import Path
 
+from benchmarks import apply_benchmark_defaults, benchmark_name, load_benchmark, normalize_symbols
 from env_loader import load_repo_env
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,15 +106,21 @@ def build_verdict(baseline_summary, candidate_summary, args):
 
 
 def compare_strategies(args):
-    data_files = discover_data_files(args.data_dir, args.pattern)
+    data_files = discover_data_files(args.data_dir, args.pattern, args.symbol_list)
     if not data_files:
-        raise SystemExit(f"No historical CSV files found in {args.data_dir} matching {args.pattern}.")
+        symbol_note = f" for symbols {', '.join(args.symbol_list)}" if args.symbol_list else ""
+        raise SystemExit(f"No historical CSV files found in {args.data_dir} matching {args.pattern}{symbol_note}.")
 
     baseline = evaluate_strategy(BaselineStrategy(), data_files, args.passes, args.window, args.starting_equity)
     candidate = evaluate_strategy(load_strategy_from_file(args.candidate), data_files, args.passes, args.window, args.starting_equity)
     verdict = build_verdict(baseline["summary"], candidate["summary"], args)
 
     return {
+        "benchmark": {
+            "name": args.benchmark_name,
+            "path": args.benchmark_path,
+            "symbols": args.symbol_list,
+        },
         "data_dir": str(Path(args.data_dir)),
         "pattern": args.pattern,
         "data_files": [str(path) for path in data_files],
@@ -127,8 +133,10 @@ def compare_strategies(args):
 def main():
     load_repo_env()
     parser = argparse.ArgumentParser(description="Compare baseline and candidate strategy performance.")
+    parser.add_argument("--benchmark", default="")
     parser.add_argument("--data-dir", default="data/fixtures")
     parser.add_argument("--pattern", default="*.csv")
+    parser.add_argument("--symbols", default="")
     parser.add_argument("--candidate", default="lab/candidates/strategy_candidate.py")
     parser.add_argument("--passes", type=int, default=3)
     parser.add_argument("--window", type=int, default=5)
@@ -141,6 +149,17 @@ def main():
     parser.add_argument("--max-error-regression", type=float, default=0.02)
     parser.add_argument("--max-equity-regression", type=float, default=5.0)
     args = parser.parse_args()
+
+    args.benchmark_name = ""
+    args.benchmark_path = ""
+    if args.benchmark:
+        benchmark = load_benchmark(args.benchmark)
+        args = apply_benchmark_defaults(args, benchmark)
+        args.benchmark_path = benchmark["_path"]
+        if not args.benchmark_name:
+            args.benchmark_name = benchmark_name(benchmark)
+
+    args.symbol_list = normalize_symbols(args.symbols)
 
     report = compare_strategies(args)
     report_path = Path(args.report)

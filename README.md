@@ -28,6 +28,18 @@ A typical training run should be able to replay many assets many times. For exam
 
 This repository now contains the planned service folders, configuration files, database schema, a sample historical fixture, and minimal runnable skeletons for the Mirror, Brain, Lab, and UI.
 
+## Current Implementation Reality
+
+The repo now has a functioning Lab and strategy-history API, but the runtime app is still a mixed prototype rather than the full four-service architecture described below.
+
+- The current browser UI is the static prototype under `ui/prototype/`, not a Vue app yet.
+- The strategy timeline is backed by the Brain API.
+- The replay tape, decision log, and mistake log are still generated locally in the browser.
+- Mirror exists as a replay REST service, but the UI does not consume it yet.
+- The Docker `brain` service currently runs the read-only API, not a persistent decision engine.
+
+See [Current State Review](docs/CURRENT_STATE_REVIEW.md) for the full drift and refactor notes.
+
 ## Operating Notes
 
 - The system should learn from every right and wrong prediction, but it should not rewrite production strategy code after every candle. Strategy changes should happen through checkpointed evolution: collect evidence, generate a candidate, sandbox it, compare it against the baseline, and promote it only when validation improves.
@@ -85,6 +97,7 @@ This keeps runs reproducible across machines and Git checkouts. Do not treat "la
 |   |-- db_sync.py      # Postgres write-side sync for promotions
 |   |-- evolver.py      # LLM interface and Git manager
 |   |-- trainer.py      # Multi-asset, multi-pass historical training loop
+|   |-- continuous_runner.py # Stop-file-controlled continuous training orchestrator
 |   |-- compare.py      # Baseline vs candidate evaluation
 |   |-- promote.py      # Gated strategy promotion with backup manifest
 |   |-- sandbox.py      # Isolated test runner
@@ -119,13 +132,65 @@ Run the Brain strategy history API used by the prototype timeline:
 python brain/api_server.py
 ```
 
+Fetch delayed watchlist predictions from the Brain API:
+
+```bash
+curl "http://localhost:3201/watchlist/predictions?symbols=AMZN,NVDA,GOOG"
+```
+
+Inspect the local demo broker state:
+
+```bash
+curl "http://localhost:3201/broker/demo/state"
+```
+
 Run three historical training passes across every CSV in a data directory:
 
 ```bash
 python lab/trainer.py --data-dir data/fixtures --passes 3 --report run/latest_training_report.json
 ```
 
+Run a benchmark pack:
+
+```bash
+python lab/trainer.py --benchmark benchmarks/us-large-cap-daily-v1.json
+```
+
+Benchmark packs are committed JSON files that define a reproducible symbol set, data directory, thresholds, and replay parameters.
+
+Run the stop-file-controlled continuous historical loop:
+
+```bash
+python lab/continuous_runner.py --data-dir data/historical --passes 3 --interval-seconds 3600
+```
+
+Create `run/STOP` to stop the loop cleanly. Create `run/PAUSE` to pause it without exiting, then remove `run/PAUSE` to resume.
+
+Import five years of daily stock OHLCV into ignored historical CSV files:
+
+```bash
+python data/import_stocks.py --symbols AAPL,MSFT,NVDA,AMZN,GOOGL --years 5 --out data/historical
+```
+
+You can replace the `--symbols` list with any comma-separated stock symbols you want to import. Examples:
+
+```bash
+python data/import_stocks.py --symbols TSLA,META,NFLX --years 5 --out data/historical
+python data/import_stocks.py --symbols JPM,GS,BAC --years 10 --out data/historical
+python data/import_stocks.py --symbols KO,PEP,PG,WMT --years 3 --out data/historical
+```
+
+The importer writes one CSV per symbol, named `<SYMBOL>.csv`, into the output directory.
+
+The importer uses `yfinance`. If it is not installed yet:
+
+```bash
+python -m pip install yfinance
+```
+
 When a run queues a rewrite, `lab/trainer.py` now writes the current training report, generates a candidate from the active strategy version, compares it against the current strategy, and auto-promotes only when the comparison verdict is `promote_candidate`. Promotion writes a new immutable `brain/versions/strategy_gNNNN.py` file and updates `config/active_strategy.json`. Use `--no-auto-promote` if you want the trainer to stop after verdicting.
+
+`lab/continuous_runner.py` wraps that same trainer/evolver/compare/promote chain in a local loop. It does not bypass the gates. A rejected candidate is a healthy result, not a failure. The current five-symbol historical run is a good example: the candidate was rejected because drawdown got worse, so promotion was correctly skipped.
 
 When Postgres is available, promotion also upserts the promoted generation into `strategy_generations` and marks it active there. The Brain API reads Postgres for strategy history, but falls back to local config and version files if the database is unavailable.
 
@@ -341,16 +406,79 @@ Current Brain endpoints:
 - `GET /health`
 - `GET /strategy/active`
 - `GET /strategy/history?limit=8`
+- `GET /watchlist/predictions?symbols=AMZN,NVDA,GOOG`
+- `GET /broker/demo/state`
+- `POST /broker/demo/order`
 
 The Brain API prefers Postgres-backed strategy history and active-generation metadata, but it falls back to `config/active_strategy.json` plus local `brain/versions/` files when the database is unavailable.
+
+## Continuous Historical Training
+
+Use `lab/continuous_runner.py` when you want repeated historical training without manually re-running the trainer.
+
+Example:
+
+```powershell
+python lab\continuous_runner.py --data-dir data\historical --passes 3 --interval-seconds 3600
+```
+
+Using a benchmark pack:
+
+```powershell
+python lab\continuous_runner.py --benchmark benchmarks\us-large-cap-daily-v1.json --interval-seconds 3600
+```
+
+Optional automatic data refresh before each cycle:
+
+```powershell
+python lab\continuous_runner.py --passes 3 --interval-seconds 3600 --import-symbols AAPL,MSFT,NVDA,AMZN,GOOGL --import-years 5
+```
+
+Control files:
+
+- `run/continuous.lock`: prevents overlapping continuous runners
+- `run/continuous_status.json`: latest runner state, last cycle summary, and next wake-up time
+- `run/STOP`: when this file exists, the runner exits cleanly after the current check
+- `run/PAUSE`: when this file exists, the runner stays alive but does not start a new cycle
+
+Important behavior:
+
+- The continuous runner calls `lab/trainer.py`; it does not invent a second training path.
+- Trainer auto-evolution still follows the same rules: generate candidate, compare candidate, promote only on `promote_candidate`.
+- `reject_candidate` and `hold_for_review` are expected outcomes. They mean the gates worked.
+- The runner stops after `CONTINUOUS_MAX_CONSECUTIVE_FAILURES` failed cycles unless you raise that limit.
+- This loop is for historical training and paper evolution only. It must not be treated as permission for live trading.
+
+## Benchmark Packs And Contribution Artifacts
+
+Benchmark packs live under `benchmarks/` and give contributors a shared way to run the same symbol set, date source, and thresholds.
+
+Current example:
+
+- [benchmarks/us-large-cap-daily-v1.json](benchmarks/us-large-cap-daily-v1.json)
+
+When you run `lab/trainer.py` with `--benchmark`, the trainer now writes a contribution artifact under `run/contributions/` by default. That artifact is a compact shareable record of:
+
+- benchmark name
+- strategy generation
+- final metrics
+- candidate verdict
+- promotion status
+- report paths
+
+This is intended for sharing reproducible results and validation evidence without committing local `.env` secrets or raw runtime noise.
 
 ## Initial Documentation
 
 - [Architecture](docs/ARCHITECTURE.md): service boundaries, data flow, and safe-rewrite model.
+- [Current State Review](docs/CURRENT_STATE_REVIEW.md): what is real today, what is still prototype-only, and what needs refactoring.
 - [Engineering Playbook](docs/PLAYBOOK.md): environment, local debugging, config, database, and market data notes.
 - [Evolution Workflow](docs/EVOLUTION_WORKFLOW.md): LLM strategy rewriting, sandbox tests, Git promotion, and rollback.
+- [Operations And Live Trading](docs/OPERATIONS_AND_LIVE_TRADING.md): how to run continuous training now, what is needed for live prediction, and how a future eToro broker path should be staged.
+- [TODO](docs/TODO.md): prioritized implementation backlog from persistence through broker integration.
 - [UX Storyboard](docs/UX_STORYBOARD.md): first-run, failure, evolution, and deployment scenes.
 - [Implementation Backlog](docs/IMPLEMENTATION_BACKLOG.md): suggested build order for the first runnable version.
+- [Setup](setup.md): practical startup and verification checklist for Docker, Onyx, Ollama, and repo commands.
 
 ## Safety Position
 

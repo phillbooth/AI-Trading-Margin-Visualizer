@@ -6,6 +6,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from benchmarks import (
+    apply_benchmark_defaults,
+    benchmark_name,
+    build_contribution_filename,
+    load_benchmark,
+    normalize_symbols,
+)
 from env_loader import load_repo_env
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,9 +29,13 @@ def resolve_repo_path(path_value):
     return path if path.is_absolute() else ROOT / path
 
 
-def discover_data_files(data_dir, pattern):
+def discover_data_files(data_dir, pattern, symbols=None):
     files = sorted(Path(data_dir).glob(pattern))
-    return [path for path in files if path.is_file()]
+    file_list = [path for path in files if path.is_file()]
+    symbol_set = {symbol.upper() for symbol in (symbols or [])}
+    if not symbol_set:
+        return file_list
+    return [path for path in file_list if path.stem.upper() in symbol_set]
 
 
 def report_checkpoint(pass_number, results):
@@ -72,6 +83,11 @@ def build_training_report(args, data_files):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "strategy": strategy.name,
         "strategy_generation": strategy.generation,
+        "benchmark": {
+            "name": args.benchmark_name,
+            "path": args.benchmark_path,
+            "symbols": args.symbol_list,
+        },
         "data_dir": str(Path(args.data_dir)),
         "pattern": args.pattern,
         "data_files": [str(path) for path in data_files],
@@ -123,6 +139,10 @@ def maybe_run_evolution(args, report, report_path):
         "--report",
         str(comparison_path.relative_to(ROOT)),
     ]
+    if args.symbol_list:
+        compare_cmd.extend(["--symbols", ",".join(args.symbol_list)])
+    if args.benchmark_path:
+        compare_cmd.extend(["--benchmark", args.benchmark_path])
     subprocess.run(compare_cmd, check=True, cwd=ROOT)
 
     comparison_data = json.loads(comparison_path.read_text(encoding="utf-8"))
@@ -178,6 +198,54 @@ def rewrite_recommendation(summary, args):
     return "hold_current_strategy"
 
 
+def build_contribution_manifest(args, report):
+    auto = report.get("auto_evolution", {})
+    contribution = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "benchmark": {
+            "name": args.benchmark_name or "ad_hoc",
+            "path": args.benchmark_path,
+            "symbols": args.symbol_list,
+            "data_dir": args.data_dir,
+            "pattern": args.pattern,
+        },
+        "strategy": {
+            "name": report.get("strategy"),
+            "generation": report.get("strategy_generation"),
+        },
+        "final_summary": report.get("final_summary", {}),
+        "auto_evolution": {
+            "candidate_path": auto.get("candidate_path"),
+            "comparison_report": auto.get("comparison_report"),
+            "verdict": auto.get("verdict"),
+            "promotion": auto.get("promotion"),
+        },
+        "report_paths": {
+            "training_report": str(resolve_repo_path(args.report)),
+            "comparison_report": str(resolve_repo_path(args.comparison_report)),
+            "promotion_report": str(resolve_repo_path(args.promotion_report)),
+        },
+    }
+    return contribution
+
+
+def maybe_write_contribution_manifest(args, report):
+    if not args.write_contribution_manifest:
+        return None
+
+    contribution_dir = resolve_repo_path(args.contribution_dir)
+    contribution_dir.mkdir(parents=True, exist_ok=True)
+    filename = build_contribution_filename(
+        "contribution",
+        args.benchmark_name or "ad_hoc",
+        report.get("strategy_generation"),
+    )
+    path = contribution_dir / filename
+    manifest = build_contribution_manifest(args, report)
+    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return str(path)
+
+
 def print_pass_summaries(report):
     for training_pass in report["passes"]:
         summary = training_pass["summary"]
@@ -203,14 +271,18 @@ def print_pass_summaries(report):
     if auto_evolution:
         summary["candidate_verdict"] = auto_evolution.get("verdict", {}).get("verdict")
         summary["promotion_status"] = auto_evolution.get("promotion", {}).get("status")
+    if report.get("contribution_manifest"):
+        summary["contribution_manifest"] = report["contribution_manifest"]
     print(json.dumps(summary, indent=2))
 
 
 def main():
     load_repo_env()
     parser = argparse.ArgumentParser(description="Run repeated historical training passes across many assets.")
+    parser.add_argument("--benchmark", default="")
     parser.add_argument("--data-dir", default="data/fixtures")
     parser.add_argument("--pattern", default="*.csv")
+    parser.add_argument("--symbols", default="")
     parser.add_argument("--passes", type=int, default=3)
     parser.add_argument("--window", type=int, default=5)
     parser.add_argument("--starting-equity", type=float, default=10000)
@@ -223,14 +295,28 @@ def main():
     parser.add_argument("--min-accuracy", type=float, default=0.52)
     parser.add_argument("--min-mistakes-for-rewrite", type=int, default=3)
     parser.add_argument("--max-drawdown-pct", type=float, default=12)
+    parser.add_argument("--contribution-dir", default="run/contributions")
+    parser.add_argument("--write-contribution-manifest", dest="write_contribution_manifest", action="store_true")
+    parser.add_argument("--no-write-contribution-manifest", dest="write_contribution_manifest", action="store_false")
     parser.add_argument("--auto-promote", dest="auto_promote", action="store_true")
     parser.add_argument("--no-auto-promote", dest="auto_promote", action="store_false")
-    parser.set_defaults(auto_promote=True)
+    parser.set_defaults(auto_promote=True, write_contribution_manifest=True)
     args = parser.parse_args()
 
-    data_files = discover_data_files(args.data_dir, args.pattern)
+    args.benchmark_name = ""
+    args.benchmark_path = ""
+    if args.benchmark:
+        benchmark = load_benchmark(args.benchmark)
+        args = apply_benchmark_defaults(args, benchmark)
+        args.benchmark_path = benchmark["_path"]
+        if not args.benchmark_name:
+            args.benchmark_name = benchmark_name(benchmark)
+
+    args.symbol_list = normalize_symbols(args.symbols)
+    data_files = discover_data_files(args.data_dir, args.pattern, args.symbol_list)
     if not data_files:
-        raise SystemExit(f"No historical CSV files found in {args.data_dir} matching {args.pattern}.")
+        symbol_note = f" for symbols {', '.join(args.symbol_list)}" if args.symbol_list else ""
+        raise SystemExit(f"No historical CSV files found in {args.data_dir} matching {args.pattern}{symbol_note}.")
 
     report = build_training_report(args, data_files)
     report_path = resolve_repo_path(args.report)
@@ -239,6 +325,9 @@ def main():
     auto_evolution = maybe_run_evolution(args, report, report_path)
     if auto_evolution:
         report["auto_evolution"] = auto_evolution
+    contribution_manifest_path = maybe_write_contribution_manifest(args, report)
+    if contribution_manifest_path:
+        report["contribution_manifest"] = contribution_manifest_path
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print_pass_summaries(report)
 

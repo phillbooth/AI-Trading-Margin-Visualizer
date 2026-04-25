@@ -42,6 +42,8 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 - [x] Compare baseline vs candidate and return a verdict.
 - [x] Promote passing candidates into immutable `brain/versions/strategy_gNNNN.py` files.
 - [x] Persist promoted generation metadata and active state to Postgres when available.
+- [x] Add a continuous historical runner with stop, pause, lock, and status files.
+- [x] Add committed benchmark packs and contribution artifacts for reproducible shared evaluation.
 - Run sandbox replay against Mirror deterministic mode.
 - Commit approved changes to Git.
 
@@ -65,7 +67,7 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 
 ## Phase 7: Asset Expansion
 
-- Add stock data adapter and `stock_metrics` ingestion.
+- [x] Add stock data adapter and `stock_metrics` ingestion.
 - Add crypto metrics adapter and `crypto_metrics` ingestion.
 - Add commodity metrics adapter and `commodity_metrics` ingestion.
 - Add asset-specific ensemble modules.
@@ -81,3 +83,12 @@ The repository has moved past the initial scaffolding pass. The next concrete ta
 - Replace the remaining local replay-only decision and mistake UI history with database-backed records.
 
 That gives the Lab real evidence for deciding whether a rewrite made the strategy better or just overfit the sample, and it moves the UI from prototype-only event history to real run history.
+
+## Refactor Priority
+
+Before adding much more UI behavior, reduce the current architecture drift:
+
+- Move replay state generation out of `ui/prototype/assets/app.js` and into Mirror.
+- Make the UI consume Mirror and Brain APIs instead of fabricating replay, decision, and mistake events locally.
+- Keep `ui/prototype/` as the active prototype until a real Vue UI exists, rather than documenting both as if both are current.
+- Remove root-level artifacts that are no longer serving a project, such as a root `package-lock.json` without a matching root `package.json`.
