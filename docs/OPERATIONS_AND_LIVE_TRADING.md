@@ -86,6 +86,8 @@ This endpoint:
 - fetches recent daily candles from Yahoo Finance
 - runs the active strategy against that recent history
 - returns a current paper prediction and paper decision per symbol
+- returns a target exit price based on the model's expected move
+- estimates net expected return after assumed fees
 
 ### What is not built yet
 
@@ -171,7 +173,7 @@ For this project, the correct way to introduce real trading is:
 That is a sensible starting constraint set for a future real-trading mode:
 
 - broker budget cap: `100 GBP`
-- leverage cap: `1`
+- leverage cap: `1` by default
 - max single position: small fraction of total cash
 - allowed instruments: explicit whitelist only
 - default environment: `demo`
@@ -192,6 +194,32 @@ Before live execution exists, require:
 - human-readable audit log
 - kill switch
 
+### Environment structure for future live credentials
+
+Do not overload the current demo broker settings with real broker secrets.
+
+Use a separate section in local `.env`:
+
+```bash
+BROKER_MODE=demo
+BROKER_PROVIDER=
+BROKER_ENVIRONMENT=demo
+BROKER_API_BASE_URL=
+BROKER_ACCOUNT_ID=
+BROKER_API_KEY=
+BROKER_API_SECRET=
+ETORO_PUBLIC_API_KEY=
+ETORO_USER_KEY=
+```
+
+Guidance:
+
+- keep `BROKER_MODE=demo` until a real adapter is implemented and validated
+- keep demo cash/risk settings under the `DEMO_BROKER_*` block
+- keep real broker secrets separate so there is no ambiguity about execution mode
+- store live credentials only in local `.env`, never in `.env.template` with real values and never in Git
+- for eToro specifically, the future adapter should read `ETORO_PUBLIC_API_KEY` and `ETORO_USER_KEY`
+
 ### What works now
 
 The Brain now exposes a strictly local demo broker:
@@ -203,9 +231,18 @@ Current demo broker rules:
 
 - paper only
 - no shorting
-- leverage capped at `1`
+- leverage defaults to `1`
+- leverage can be raised deliberately to `5` or `10`
+- hard leverage ceiling enforced at `10`
+- fee-aware cash accounting
+- trade cooldown enforced in milliseconds
+- max order size cap enforced as a percentage of available cash
+- max realized daily loss cap enforced before new trades
 - optional symbol whitelist from `.env`
 - local state file at `run/demo_broker_state.json`
+- raw order history kept in local broker state for now
+
+The trade interval is also reflected in the prediction layer now. Live-watch responses include `execution_guardrails`, which can convert an otherwise valid `BUY` or `SELL` signal into `WAIT_COOLDOWN` when the minimum interval between trades has not elapsed.
 
 Request body example:
 
@@ -214,9 +251,67 @@ Request body example:
   "symbol": "AMZN",
   "side": "BUY",
   "amount": 25,
-  "leverage": 1
+  "leverage": 1,
+  "take_profit_pct": 1.5
 }
 ```
+
+Conservative default trade-rate limit:
+
+- `DEMO_BROKER_MIN_TRADE_INTERVAL_MS=300000`
+
+That is one trade every 5 minutes. It is a sensible conservative default for early live-style testing because it reduces overtrading and makes review easier.
+
+Operationally, treat this interval as part of the risk equation:
+
+- it reduces rapid flip-trading on noisy signals
+- it forces a minimum pause between executions
+- it should be reviewed alongside leverage, fees, max order size, and max daily loss
+- it is reported back through the Brain API so the UI can show when execution is blocked by cooldown rather than market logic
+
+Other conservative defaults now supported:
+
+- `DEMO_BROKER_MAX_ORDER_PCT=10`
+- `DEMO_BROKER_MAX_DAILY_LOSS=5`
+- `DEMO_BROKER_FEE_PCT=0.1`
+
+For a small starter account, those defaults mean:
+
+- a single new buy cannot exceed 10% of current cash
+- once realized loss for the day reaches 5 units of account currency, new trades are blocked
+- every buy and sell includes fee-aware cash handling
+
+### Notification log requirement
+
+Before this moves beyond a local demo broker, the app needs a dedicated broker notification log.
+
+It should record events like:
+
+- bought `AMZN` for `10.00 USD`
+- sold `AMZN` at `267.00 USD`
+- realized profit after fees
+- blocked trade because cooldown is active
+- blocked trade because max order size or daily loss cap was hit
+
+That log should exist in two forms:
+
+1. operator-facing notification items for the UI
+2. persistent broker events for audit and debugging
+
+Recommended event fields:
+
+- timestamp
+- mode: `demo` or `live`
+- symbol
+- side
+- amount
+- units
+- price
+- fees
+- realized PnL
+- cash after
+- event type
+- short human-readable message
 
 ### What the repo does not yet do
 
@@ -225,7 +320,7 @@ The repo still does **not** yet have:
 - eToro broker adapter code
 - demo/real broker account sync
 - order reconciliation against a real third-party broker
-- persistent broker audit trail in Postgres
+- persistent broker audit trail and notification log in Postgres
 - production-grade live risk management
 
 So the answer is: **yes, eToro is now a plausible broker integration target, but this repo currently implements only a local demo broker path and should stay there until the real adapter is built.**
@@ -327,11 +422,12 @@ That gives a clean split:
 
 ## 6. Recommended next build order
 
-1. Persist predictions, decisions, mistakes, and backtest runs to Postgres
+1. Persist predictions, decisions, mistakes, backtest runs, and broker notification events to Postgres
 2. Add a stock-watchlist benchmark and benchmark results view
 3. Add live market watch mode with paper predictions only
-4. Add broker adapter in demo mode
-5. Add real-money broker mode only after the paper path is stable
+4. Add UI notification log for demo/live broker events
+5. Add broker adapter in demo mode
+6. Add real-money broker mode only after the paper path is stable
 
 ## Sources
 

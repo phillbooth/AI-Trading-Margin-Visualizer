@@ -144,6 +144,22 @@ Inspect the local demo broker state:
 curl "http://localhost:3201/broker/demo/state"
 ```
 
+Place a fee-aware demo broker order with an optional take-profit target:
+
+```bash
+curl -X POST "http://localhost:3201/broker/demo/order" \
+  -H "Content-Type: application/json" \
+  -d "{\"symbol\":\"AMZN\",\"side\":\"BUY\",\"amount\":10,\"leverage\":1,\"take_profit_pct\":1.5}"
+```
+
+The current demo broker state is still a machine-oriented JSON surface. A proper operator-facing notification log is now an explicit next step: buys, sells, blocked trades, realized profit, fees, and cash after each event should be visible in the UI and persisted for audit.
+
+Demo broker leverage defaults to `1`. You can raise `DEMO_BROKER_MAX_LEVERAGE` for testing, but the current broker logic is intentionally conservative: use `5` or `10` only by explicit choice, and the hard ceiling is `10`.
+
+The demo broker also enforces `DEMO_BROKER_MIN_TRADE_INTERVAL_MS` as a trading risk guard. The live-watch prediction surface now exposes cooldown-aware `execution_guardrails`, so a model signal can be visible while execution is still blocked until the interval expires.
+
+Live broker credentials should not be mixed into the demo broker block. Use a separate broker-mode section in your local `.env`, keep `BROKER_MODE=demo` by default, and leave real keys blank until a real broker adapter exists.
+
 Run three historical training passes across every CSV in a data directory:
 
 ```bash
@@ -236,9 +252,34 @@ ONYX_API_MODE=app
 ONYX_TOKEN=your_onyx_api_key
 ```
 
+For a local Windows auto-check/boot flow, you can also set:
+
+```bash
+ONYX_INSTALL_DIR=C:\Users\desig\OneDrive\Documents\AI\onyx
+ONYX_BOOT_TIMEOUT_SECONDS=60
+DOCKER_DESKTOP_PATH=C:\Program Files\Docker\Docker\Docker Desktop.exe
+DOCKER_BOOT_TIMEOUT_SECONDS=90
+```
+
 If your Onyx admin has a default text model configured, you can leave `ONYX_MODEL` blank. If you want to override the model per request, set `ONYX_MODEL` to the actual underlying model version configured in Onyx, not a generic label like `onyx-chat`.
 
 When the Lab runs inside Docker, use `http://host.docker.internal:3000` instead of `http://localhost:3000` so the container can reach your host machine.
+
+For local operator checks, the repo now includes:
+
+```powershell
+python brain\onyx_boot.py
+python brain\onyx_boot.py --ensure
+```
+
+And the Brain API exposes:
+
+```text
+GET  /ops/onyx/status
+POST /ops/onyx/bootstrap
+```
+
+These use `ONYX_BASE_URL`, `ONYX_INSTALL_DIR`, and `DOCKER_DESKTOP_PATH` to verify Onyx, optionally start Docker Desktop, run `docker compose up -d` in the Onyx folder, and then re-check health.
 
 ## Reproducible Onyx + Ollama Setup
 
@@ -251,6 +292,29 @@ Ollama models stored under %USERPROFILE%\.ollama\models
 ```
 
 The repo does not talk to Ollama directly. The repo talks to Onyx. Onyx talks to Ollama.
+
+### Daily Boot Note
+
+On this machine, the normal boot behavior is:
+
+- Ollama starts and is usually already available after Windows login
+- Onyx does **not** auto-start and must be started manually
+
+So the normal daily startup routine is:
+
+1. confirm Ollama is responding at `http://127.0.0.1:11434/api/tags`
+2. start the Docker Desktop app before running any `docker` commands
+3. start or confirm Onyx so `http://localhost:3000` responds
+4. re-check Onyx `Admin -> Language Models` if needed
+5. then run repo commands
+
+If you want the repo to attempt local recovery, set `ONYX_INSTALL_DIR` in `.env` and run:
+
+```powershell
+python brain\onyx_boot.py --ensure
+```
+
+The full step-by-step checklist is in [setup.md](setup.md).
 
 ### 1. Install and verify Ollama on Windows
 
@@ -265,6 +329,8 @@ Pull a coding model:
 ```powershell
 & 'C:\Users\<your-user>\AppData\Local\Programs\Ollama\ollama.exe' pull qwen2.5-coder:7b
 ```
+
+That model pull is part of the required local setup. Without it, Onyx can reach Ollama but will not have a usable local model to serve.
 
 Verify the model is available:
 
@@ -486,7 +552,7 @@ This project should begin as a paper-trading and simulation system only. Live ex
 
 ## Next Implementation Step
 
-Replace the small committed fixture with a real five-year historical data adapter for multiple symbols, then persist predictions, decisions, mistake logs, and backtest runs so the UI can stop using local replay-only event history.
+Persist predictions, decisions, mistake logs, backtest runs, and broker notification events so the UI can stop using local replay-only event history and gain a proper demo/live trading event log.
 
 ## License
 

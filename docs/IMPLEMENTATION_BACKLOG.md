@@ -27,6 +27,7 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 - [x] Implement simple ensemble scoring with Quant, Neural placeholder, and Sentiment placeholder signals.
 - [x] Run a historical next-candle prediction backtest against a CSV fixture.
 - [x] Expose a read-only Brain API for active strategy state and generation history.
+- [x] Expose basic live-watch and demo broker scaffolding from the Brain API.
 - Emit paper decisions only.
 - Persist decisions, PnL, and state to Postgres.
 - Add graceful shutdown state save.
@@ -55,6 +56,7 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 - [x] Show mistake log table.
 - [x] Show strategy generation timeline.
 - [x] Read strategy generation timeline from the Brain API when available, with local fallback.
+- Add broker notification log for demo/live order events.
 
 ## Phase 6: Safety Hardening
 
@@ -80,6 +82,7 @@ The repository has moved past the initial scaffolding pass. The next concrete ta
 - Teach Mirror to replay files from `data/historical/` by symbol and date range.
 - Persist Brain backtest predictions and mistake logs into Postgres.
 - Persist decisions and backtest runs into Postgres.
+- Persist broker notification events and audit trail into Postgres.
 - Replace the remaining local replay-only decision and mistake UI history with database-backed records.
 
 That gives the Lab real evidence for deciding whether a rewrite made the strategy better or just overfit the sample, and it moves the UI from prototype-only event history to real run history.

@@ -7,11 +7,79 @@ This file is the practical startup and verification checklist for this repositor
 - Onyx running in Docker
 - Repo scripts talking to Onyx, not directly to Ollama
 
+## Daily Boot Checklist
+
+This matches the current local machine behavior:
+
+- Ollama normally comes up with Windows and is already running after boot
+- Onyx does not auto-start and must be started manually
+
+Daily startup sequence:
+
+1. Confirm Ollama is alive:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:11434/api/tags
+```
+
+2. Start the Docker Desktop app before running any `docker` or `docker compose` commands.
+
+Wait for Docker Desktop to finish booting. If the Docker app is not running yet, `docker ps` and other Docker commands will fail.
+
+3. Start or confirm Onyx:
+
+```powershell
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+Invoke-WebRequest -UseBasicParsing http://localhost:3000/
+```
+
+Expected result:
+
+- Onyx containers are up
+- `http://localhost:3000` returns `200`
+
+4. If Onyx was just started or restarted, re-check:
+
+- `Admin -> Language Models`
+- Ollama provider still points to `http://host.docker.internal:11434`
+- expected model is still present
+- default text model is still set
+
+5. Then run repo services as needed:
+
+```powershell
+python brain\api_server.py
+```
+
+If you want the repo to try the local Onyx boot for you, set `ONYX_INSTALL_DIR` in `.env` and use:
+
+```powershell
+python brain\onyx_boot.py --ensure
+```
+
+On this machine, the configured local Onyx path is:
+
+```text
+C:\Users\desig\OneDrive\Documents\AI\onyx
+```
+
+Optional:
+
+```powershell
+python lab\continuous_runner.py --benchmark benchmarks\watchlist-us-stocks-v1.json --interval-seconds 3600
+```
+
 ## 1. Start the local dependencies
 
 Start Docker Desktop.
 
-Make sure Ollama is running on the Windows host.
+Make sure Ollama is installed and running on the Windows host.
+
+If Ollama is not installed yet, install it first, then pull the model used in this setup:
+
+```powershell
+& 'C:\Users\<your-user>\AppData\Local\Programs\Ollama\ollama.exe' pull qwen2.5-coder:7b
+```
 
 If Onyx is already installed in Docker, confirm it is up:
 
@@ -71,15 +139,48 @@ ONYX_TOKEN=your_service_account_key
 Typical local optional values:
 
 ```bash
+ONYX_INSTALL_DIR=C:\Users\desig\OneDrive\Documents\AI\onyx
+ONYX_BOOT_TIMEOUT_SECONDS=60
+DOCKER_DESKTOP_PATH=C:\Program Files\Docker\Docker\Docker Desktop.exe
+DOCKER_BOOT_TIMEOUT_SECONDS=90
 ACTIVE_STRATEGY_GENERATION=
 ONYX_MODEL=
 BRAIN_API_PORT=3201
+DEMO_BROKER_INITIAL_CASH=100
+DEMO_BROKER_MAX_LEVERAGE=1
+DEMO_BROKER_FEE_PCT=0.1
+DEMO_BROKER_MIN_TRADE_INTERVAL_MS=300000
+DEMO_BROKER_MAX_ORDER_PCT=10
+DEMO_BROKER_MAX_DAILY_LOSS=5
+BROKER_MODE=demo
+BROKER_PROVIDER=
+BROKER_ENVIRONMENT=demo
+BROKER_API_BASE_URL=
+BROKER_ACCOUNT_ID=
+BROKER_API_KEY=
+BROKER_API_SECRET=
+ETORO_PUBLIC_API_KEY=
+ETORO_USER_KEY=
 POSTGRES_HOST=db
 POSTGRES_PORT=5432
 POSTGRES_DB=neural_twin
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=password
 ```
+
+`DEMO_BROKER_MAX_LEVERAGE` defaults to `1`. If you deliberately want higher-risk testing, raise it to `5` or `10`. The current demo broker enforces a hard ceiling of `10` even if a higher value is configured.
+
+`DEMO_BROKER_MIN_TRADE_INTERVAL_MS` is part of the trading risk model, not just a convenience throttle. The Brain live-watch output now includes cooldown-aware execution guardrails, so a strategy may still predict `BUY` while execution is told to `WAIT_COOLDOWN` until the interval expires.
+
+`ONYX_INSTALL_DIR` lets the repo find your local Onyx Docker Compose setup. The helper searches that folder and common subfolders like `deployment\docker_compose`, then runs `docker compose up -d` there. If Docker Desktop is not running yet, the helper first tries to start it using `DOCKER_DESKTOP_PATH`.
+
+Broker credential guidance:
+
+- keep `BROKER_MODE=demo` unless a real broker adapter has been implemented and explicitly enabled
+- keep live broker keys only in your local `.env`
+- do not reuse the demo broker settings block for real credentials
+- if you later use eToro, store its keys in `ETORO_PUBLIC_API_KEY` and `ETORO_USER_KEY`
+- these credentials are placeholders today; the repo does not yet place live broker orders
 
 To verify that the repo loads the expected values:
 
@@ -102,6 +203,20 @@ Expected result:
 - `ACTIVE_STRATEGY_GENERATION=''` is fine in normal operation
 
 ## 5. Verify the repo -> Onyx -> Ollama path
+
+You can check or bootstrap the local Onyx stack directly:
+
+```powershell
+python brain\onyx_boot.py
+python brain\onyx_boot.py --ensure
+```
+
+Or through the Brain API after `python brain\api_server.py` is running:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing "http://localhost:3201/ops/onyx/status"
+Invoke-WebRequest -UseBasicParsing -Method POST "http://localhost:3201/ops/onyx/bootstrap"
+```
 
 From the repo root:
 
@@ -156,6 +271,15 @@ Run:
 python brain\api_server.py
 ```
 
+For live-watch and demo trading checks, also verify:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing "http://localhost:3201/watchlist/predictions?symbols=AMZN,NVDA,GOOG"
+Invoke-WebRequest -UseBasicParsing "http://localhost:3201/broker/demo/state"
+```
+
+In the live-watch response, check `execution_guardrails.cooldown`. If `can_trade_now` is `false`, the app should treat the current signal as blocked by the configured interval.
+
 Then verify:
 
 ```powershell
@@ -176,6 +300,12 @@ Check these in order:
 3. Onyx still points to `http://host.docker.internal:11434`
 4. the Onyx default text model is still set
 5. the repo `.env` still contains valid single-line `KEY=value` entries
+
+Common local startup failures:
+
+- If `docker ps` returns an error mentioning `dockerDesktopLinuxEngine` or `The system cannot find the file specified`, Docker Desktop is not running yet. Start Docker Desktop first, wait for it to finish booting, then run `docker ps` again.
+- If `Invoke-WebRequest http://localhost:3000/` says `Unable to connect to the remote server`, Onyx is not running yet. In this setup, that usually means Docker Desktop was not running or the Onyx containers were not started.
+- Do not try to diagnose Onyx first when `docker ps` is already failing. The first fix is to start the Docker Desktop app.
 
 ## 9. Next repo task
 

@@ -5,9 +5,12 @@ from urllib.parse import parse_qs, urlparse
 
 from demo_broker import broker_state, place_demo_order
 from db import fetch_active_strategy_record, fetch_strategy_history
+from env_loader import load_repo_env
 from live_watch import build_watchlist_predictions
+from onyx_runtime import ensure_onyx_running, onyx_status
 
 
+load_repo_env()
 PORT = int(os.getenv("BRAIN_API_PORT", "3201"))
 
 
@@ -52,11 +55,20 @@ class BrainApiHandler(BaseHTTPRequestHandler):
             self.send_json(200, broker_state())
             return
 
+        if parsed.path == "/ops/onyx/status":
+            self.send_json(200, onyx_status())
+            return
+
         self.send_json(404, {"error": "Unknown Brain endpoint."})
 
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path != "/broker/demo/order":
+            if parsed.path == "/ops/onyx/bootstrap":
+                result = ensure_onyx_running()
+                status_code = 200 if result.get("ready") else 500
+                self.send_json(status_code, result)
+                return
             self.send_json(404, {"error": "Unknown Brain endpoint."})
             return
 
@@ -77,6 +89,8 @@ class BrainApiHandler(BaseHTTPRequestHandler):
                 side=payload.get("side", ""),
                 amount=payload.get("amount", 0),
                 leverage=payload.get("leverage", 1),
+                target_exit_price=payload.get("target_exit_price"),
+                take_profit_pct=payload.get("take_profit_pct"),
             )
         except Exception as error:
             self.send_json(400, {"error": str(error)})
