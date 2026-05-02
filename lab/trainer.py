@@ -13,6 +13,7 @@ from benchmarks import (
     load_benchmark,
     normalize_symbols,
 )
+from db_sync import sync_training_report
 from env_loader import load_repo_env
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -300,7 +301,9 @@ def main():
     parser.add_argument("--no-write-contribution-manifest", dest="write_contribution_manifest", action="store_false")
     parser.add_argument("--auto-promote", dest="auto_promote", action="store_true")
     parser.add_argument("--no-auto-promote", dest="auto_promote", action="store_false")
-    parser.set_defaults(auto_promote=True, write_contribution_manifest=True)
+    parser.add_argument("--sync-db", dest="sync_db", action="store_true")
+    parser.add_argument("--no-sync-db", dest="sync_db", action="store_false")
+    parser.set_defaults(auto_promote=True, write_contribution_manifest=True, sync_db=True)
     args = parser.parse_args()
 
     args.benchmark_name = ""
@@ -325,6 +328,17 @@ def main():
     auto_evolution = maybe_run_evolution(args, report, report_path)
     if auto_evolution:
         report["auto_evolution"] = auto_evolution
+    if args.sync_db:
+        report["db_sync"] = {
+            "training_report": sync_training_report(report),
+        }
+    else:
+        report["db_sync"] = {
+            "training_report": {
+                "status": "skipped",
+                "reason": "disabled_by_flag",
+            },
+        }
     contribution_manifest_path = maybe_write_contribution_manifest(args, report)
     if contribution_manifest_path:
         report["contribution_manifest"] = contribution_manifest_path

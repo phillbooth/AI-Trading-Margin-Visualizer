@@ -225,7 +225,10 @@ Guidance:
 The Brain now exposes a strictly local demo broker:
 
 - `GET /broker/demo/state`
+- `GET /broker/demo/events?limit=50`
 - `POST /broker/demo/order`
+- `GET /events/decisions?limit=50`
+- `GET /events/mistakes?limit=50`
 
 Current demo broker rules:
 
@@ -241,6 +244,10 @@ Current demo broker rules:
 - optional symbol whitelist from `.env`
 - local state file at `run/demo_broker_state.json`
 - raw order history kept in local broker state for now
+
+When Postgres is available, order events are also persisted to `broker_events` and the events endpoint reads from Postgres first with a local fallback.
+
+The prototype UI now reads decision, mistake, and broker notification history from Brain API endpoints first, then falls back to local replay-only history when API/DB data is unavailable.
 
 The trade interval is also reflected in the prediction layer now. Live-watch responses include `execution_guardrails`, which can convert an otherwise valid `BUY` or `SELL` signal into `WAIT_COOLDOWN` when the minimum interval between trades has not elapsed.
 
@@ -420,9 +427,14 @@ That gives a clean split:
 5. add timestamp-safe historical event features
 6. retrain and compare again
 
+Status update:
+
+- Step 1 is now wired in `lab/trainer.py` via the training-report DB sync path.
+- Use `--no-sync-db` for intentional local-only runs.
+
 ## 6. Recommended next build order
 
-1. Persist predictions, decisions, mistakes, backtest runs, and broker notification events to Postgres
+1. Replace the remaining UI-local decision and mistake history with API/DB-backed records
 2. Add a stock-watchlist benchmark and benchmark results view
 3. Add live market watch mode with paper predictions only
 4. Add UI notification log for demo/live broker events

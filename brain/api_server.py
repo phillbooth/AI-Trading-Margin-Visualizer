@@ -3,8 +3,13 @@ import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from demo_broker import broker_state, place_demo_order
-from db import fetch_active_strategy_record, fetch_strategy_history
+from demo_broker import broker_state, fetch_broker_events, place_demo_order
+from db import (
+    fetch_active_strategy_record,
+    fetch_recent_decisions,
+    fetch_recent_mistakes,
+    fetch_strategy_history,
+)
 from env_loader import load_repo_env
 from live_watch import build_watchlist_predictions
 from onyx_runtime import ensure_onyx_running, onyx_status
@@ -53,6 +58,33 @@ class BrainApiHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/broker/demo/state":
             self.send_json(200, broker_state())
+            return
+
+        if parsed.path == "/broker/demo/events":
+            params = parse_qs(parsed.query)
+            try:
+                limit = max(1, min(200, int(params.get("limit", ["50"])[0])))
+            except ValueError:
+                limit = 50
+            self.send_json(200, fetch_broker_events(limit))
+            return
+
+        if parsed.path == "/events/decisions":
+            params = parse_qs(parsed.query)
+            try:
+                limit = max(1, min(200, int(params.get("limit", ["20"])[0])))
+            except ValueError:
+                limit = 20
+            self.send_json(200, fetch_recent_decisions(limit))
+            return
+
+        if parsed.path == "/events/mistakes":
+            params = parse_qs(parsed.query)
+            try:
+                limit = max(1, min(200, int(params.get("limit", ["20"])[0])))
+            except ValueError:
+                limit = 20
+            self.send_json(200, fetch_recent_mistakes(limit))
             return
 
         if parsed.path == "/ops/onyx/status":

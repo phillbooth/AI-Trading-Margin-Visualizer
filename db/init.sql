@@ -109,6 +109,34 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS broker_events (
+    id BIGSERIAL PRIMARY KEY,
+    event_time TIMESTAMPTZ NOT NULL,
+    mode VARCHAR(24) NOT NULL DEFAULT 'demo',
+    provider VARCHAR(32) NOT NULL DEFAULT 'local_demo',
+    asset_id INTEGER REFERENCES assets(id),
+    symbol VARCHAR(32) NOT NULL,
+    side VARCHAR(16) NOT NULL,
+    amount DECIMAL NOT NULL,
+    units DECIMAL NOT NULL,
+    price DECIMAL NOT NULL,
+    leverage DECIMAL NOT NULL,
+    estimated_fee DECIMAL NOT NULL DEFAULT 0,
+    realized_pnl DECIMAL NOT NULL DEFAULT 0,
+    status VARCHAR(24) NOT NULL DEFAULT 'accepted',
+    reason TEXT,
+    cash_after DECIMAL,
+    currency VARCHAR(16),
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS broker_events_event_time_idx
+    ON broker_events (event_time DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS broker_events_symbol_idx
+    ON broker_events (symbol, event_time DESC);
+
 INSERT INTO assets (symbol, name, asset_type, quote_currency)
 VALUES ('SAMPLE', 'Sample Equity Fixture', 'STOCK', 'USD')
 ON CONFLICT (symbol) DO NOTHING;

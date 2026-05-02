@@ -4,19 +4,19 @@ This is the current implementation TODO, ordered by practical priority.
 
 ## 1. Persist real run data
 
-- Persist predictions to Postgres
-- Persist paper decisions to Postgres
-- Persist mistake logs to Postgres
-- Persist backtest runs to Postgres
-- Persist broker notification events to Postgres
-- Replace remaining UI-local event history with database-backed reads
+- [x] Persist predictions to Postgres (trainer report sync path)
+- [x] Persist paper decisions to Postgres (trainer report sync path)
+- [x] Persist mistake logs to Postgres (trainer report sync path)
+- [x] Persist backtest runs to Postgres (trainer report sync path)
+- [x] Persist broker notification events to Postgres (demo broker sync path)
+- [x] Replace remaining UI-local event history with database-backed reads for decision/mistake/broker notification panels in the prototype (with local fallback)
 
 ## 2. Finish live watch mode
 
-- Add a real UI panel for `/watchlist/predictions`
-- Show current paper decisions for the active watchlist
-- Show cooldown-aware `execution_guardrails` so blocked trades are visible as risk controls, not missing actions
-- Add refresh cadence and stale-data handling
+- [x] Add a real UI panel for `/watchlist/predictions`
+- [x] Show current paper decisions for the active watchlist
+- [x] Show cooldown-aware `execution_guardrails` so blocked trades are visible as risk controls, not missing actions
+- [x] Add refresh cadence and stale-data handling
 - Add symbol normalization for non-U.S. exchange symbols and broker aliases
 
 ## 3. Finish demo broker mode
@@ -25,7 +25,7 @@ This is the current implementation TODO, ordered by practical priority.
 - Add per-symbol max allocation limits
 - Add max daily loss and cooldown rules
 - Add explicit close-position workflow
-- Add operator-facing broker notification log
+- [x] Add operator-facing broker notification log (Brain endpoint + prototype panel)
 - Persist demo broker audit trail and notification log in Postgres instead of only `run/demo_broker_state.json`
 
 ## 4. Broker integration

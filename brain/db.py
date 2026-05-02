@@ -194,3 +194,113 @@ def fetch_strategy_history(limit=10):
             "selected": generation_id == active_generation_id,
         })
     return items
+
+
+def fetch_db_decisions(limit):
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    d.id,
+                    d.decision,
+                    d.reason,
+                    d.paper_equity,
+                    d.created_at,
+                    a.symbol,
+                    p.candle_time,
+                    p.predicted_direction,
+                    p.actual_direction,
+                    p.actual_return_pct,
+                    p.was_correct
+                FROM decisions d
+                JOIN assets a ON a.id = d.asset_id
+                LEFT JOIN predictions p ON p.id = d.prediction_id
+                ORDER BY COALESCE(p.candle_time, d.created_at) DESC, d.id DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            return cur.fetchall()
+
+
+def fetch_db_mistakes(limit):
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    m.id,
+                    m.mistake_type,
+                    m.severity,
+                    m.context,
+                    m.created_at,
+                    a.symbol
+                FROM mistake_logs m
+                JOIN assets a ON a.id = m.asset_id
+                ORDER BY m.created_at DESC, m.id DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            return cur.fetchall()
+
+
+def fetch_recent_decisions(limit=20):
+    status = db_support_status()
+    if not status["enabled"]:
+        return {"source": "local", "status": "fallback", "items": []}
+
+    try:
+        rows = fetch_db_decisions(limit)
+    except Exception:  # pragma: no cover - runtime DB dependency
+        return {"source": "local", "status": "fallback", "items": []}
+
+    items = []
+    for row in rows:
+        timestamp = row["candle_time"] or row["created_at"]
+        items.append(
+            {
+                "id": row["id"],
+                "time": timestamp.isoformat() if timestamp else None,
+                "symbol": row["symbol"],
+                "decision": row["decision"],
+                "reason": row["reason"],
+                "paper_equity": float(row["paper_equity"]) if row["paper_equity"] is not None else None,
+                "predicted_direction": row["predicted_direction"],
+                "actual_direction": row["actual_direction"],
+                "actual_return_pct": float(row["actual_return_pct"]) if row["actual_return_pct"] is not None else None,
+                "was_correct": row["was_correct"],
+            }
+        )
+    return {"source": "postgres", "status": "ok", "items": items}
+
+
+def fetch_recent_mistakes(limit=20):
+    status = db_support_status()
+    if not status["enabled"]:
+        return {"source": "local", "status": "fallback", "items": []}
+
+    try:
+        rows = fetch_db_mistakes(limit)
+    except Exception:  # pragma: no cover - runtime DB dependency
+        return {"source": "local", "status": "fallback", "items": []}
+
+    items = []
+    for row in rows:
+        context = row["context"] if isinstance(row["context"], dict) else {}
+        items.append(
+            {
+                "id": row["id"],
+                "time": row["created_at"].isoformat() if row["created_at"] else context.get("time"),
+                "symbol": row["symbol"],
+                "mistake_type": row["mistake_type"],
+                "severity": row["severity"],
+                "title": context.get("mistake_type") or row["mistake_type"],
+                "detail": context.get("reason")
+                or context.get("detail")
+                or f"{row['symbol']} {row['mistake_type']} ({row['severity']})",
+                "context": context,
+            }
+        )
+    return {"source": "postgres", "status": "ok", "items": items}

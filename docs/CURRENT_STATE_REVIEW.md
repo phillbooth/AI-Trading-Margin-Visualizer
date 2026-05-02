@@ -18,17 +18,19 @@ The root `index.html` is only a convenience redirect for opening the repo direct
 
 - Static prototype UI under `ui/prototype/`
 - Brain read-only API for strategy history and active generation
+- Brain event APIs for recent decisions and mistakes
+- Brain demo broker event API with Postgres-first + local fallback
 - Lab training, candidate generation, comparison, promotion, and continuous loop
 - Versioned strategy files under `brain/versions/`
 - Historical stock importer under `data/import_stocks.py`
-- Postgres schema with strategy-generation persistence partially wired
+- Postgres schema with strategy-generation persistence and trainer/demo-broker event write paths wired
 
 ### Prototype or placeholder today
 
-- UI replay, decision log, and mistake log are still local browser state
+- UI replay/tick simulation is still local browser state
 - Mirror is a local REST replay service, but it is not feeding the UI
 - Brain Docker service currently runs the read API, not a continuously running decision engine
-- Most Postgres tables exist in schema, but only strategy-generation data is actively used end to end
+- Some UI views still fallback to local state when API/DB feeds are unavailable
 
 ## Architecture Drift
 
@@ -50,7 +52,7 @@ The current UI does three different jobs in one browser file:
 - simulates replay ticks locally
 - invents local decisions and mistake events
 
-Only the strategy timeline is fed from the Brain API. This means the UI is currently both a frontend and a mock backend. That was useful early on, but it is now the main source of architectural drift.
+Strategy timeline, decision log, mistake log, and broker notifications are now fed by Brain APIs when available. Replay ticks and replay-driven status are still generated in-browser.
 
 ### 3. Mirror exists, but the UI does not use it
 
@@ -116,8 +118,7 @@ Target shape:
 The UI should stop fabricating:
 
 - replay ticks
-- decision log entries
-- mistake log entries
+- portfolio/status replay state
 
 ### Priority 2: make service names match actual runtime behavior
 

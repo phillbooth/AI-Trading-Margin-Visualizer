@@ -254,6 +254,8 @@ Or use a committed benchmark pack:
 python lab\trainer.py --benchmark benchmarks\us-large-cap-daily-v1.json
 ```
 
+By default, the trainer tries to sync predictions, decisions, mistakes, and backtest runs into Postgres. Use `--no-sync-db` if you intentionally want a local-only run.
+
 Expected result:
 
 - the run completes
@@ -276,7 +278,12 @@ For live-watch and demo trading checks, also verify:
 ```powershell
 Invoke-WebRequest -UseBasicParsing "http://localhost:3201/watchlist/predictions?symbols=AMZN,NVDA,GOOG"
 Invoke-WebRequest -UseBasicParsing "http://localhost:3201/broker/demo/state"
+Invoke-WebRequest -UseBasicParsing "http://localhost:3201/broker/demo/events?limit=20"
+Invoke-WebRequest -UseBasicParsing "http://localhost:3201/events/decisions?limit=20"
+Invoke-WebRequest -UseBasicParsing "http://localhost:3201/events/mistakes?limit=20"
 ```
+
+In the prototype UI, the Watchlist Predictions panel now refreshes from `/watchlist/predictions` every 30 seconds and marks stale data when the feed age exceeds the stale threshold.
 
 In the live-watch response, check `execution_guardrails.cooldown`. If `can_trade_now` is `false`, the app should treat the current signal as blocked by the configured interval.
 
@@ -313,8 +320,9 @@ The next concrete build step is:
 
 - add a real stock data adapter
 - fetch five years of OHLCV into `data/historical/`
-- persist predictions, decisions, mistake logs, and backtest runs to Postgres
-- replace the remaining local replay-only UI event history with database-backed records
+- add symbol normalization for non-U.S. and broker-specific aliases
+- add demo broker UI controls for order placement and explicit close-position actions
+- move replay tick generation out of browser-local logic and into service-backed state
 
 ## 10. Historical stock import
 

@@ -61,6 +61,10 @@ const output = {
   decisionLog: document.getElementById('decisionLog'),
   mistakeSummary: document.getElementById('mistakeSummary'),
   mistakeLog: document.getElementById('mistakeLog'),
+  brokerSummary: document.getElementById('brokerSummary'),
+  brokerLog: document.getElementById('brokerLog'),
+  watchlistSummary: document.getElementById('watchlistSummary'),
+  watchlistPredictions: document.getElementById('watchlistPredictions'),
   timelineSummary: document.getElementById('timelineSummary'),
   strategyTimeline: document.getElementById('strategyTimeline')
 };
@@ -69,7 +73,9 @@ const controls = {
   runToggleButton: document.getElementById('runToggleButton'),
   stepButton: document.getElementById('stepButton'),
   resetSimButton: document.getElementById('resetSimButton'),
-  speedSelect: document.getElementById('speedSelect')
+  speedSelect: document.getElementById('speedSelect'),
+  watchlistSymbols: document.getElementById('watchlistSymbols'),
+  refreshWatchlistButton: document.getElementById('refreshWatchlistButton')
 };
 
 const canvas = document.getElementById('riskCanvas');
@@ -82,6 +88,8 @@ let replayTimer = null;
 const strategyApiBase = window.location.protocol.startsWith('http')
   ? `${window.location.protocol}//${window.location.hostname}:3201`
   : 'http://localhost:3201';
+const watchlistRefreshMs = 30000;
+const watchlistStaleMs = 90000;
 
 const replay = {
   running: false,
@@ -104,6 +112,26 @@ const strategyFeed = {
   history: [],
   error: '',
   loaded: false
+};
+
+const executionFeed = {
+  decisions: [],
+  mistakes: [],
+  brokerEvents: [],
+  decisionsSource: 'local',
+  mistakesSource: 'local',
+  brokerSource: 'local',
+  loaded: false,
+  error: ''
+};
+
+const watchlistFeed = {
+  symbols: controls.watchlistSymbols.value,
+  source: 'unknown',
+  status: 'idle',
+  loadedAtMs: 0,
+  items: [],
+  error: ''
 };
 
 function getDirection() {
@@ -259,6 +287,18 @@ function replayKey(model) {
 
 function formatReplayTime() {
   const time = new Date(replay.baseTime.getTime() + replay.tick * 15 * 60 * 1000);
+  return time.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatEventTime(value) {
+  if (!value) return '--';
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return value;
   return time.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -437,11 +477,31 @@ function drawEquityCurve(model) {
 }
 
 function renderEventList() {
-  if (!replay.decisions.length) {
+  const hasDecisionFeed = executionFeed.decisions.length > 0;
+  const hasMistakeFeed = executionFeed.mistakes.length > 0;
+
+  if (hasDecisionFeed) {
+    output.decisionSummary.textContent = `${executionFeed.decisions.length} recent (${executionFeed.decisionsSource})`;
+    output.decisionLog.innerHTML = executionFeed.decisions.map((item) => {
+      const verdict = item.was_correct === true ? 'correct' : item.was_correct === false ? 'wrong' : 'unscored';
+      const tags = [item.decision || 'UNKNOWN', verdict];
+      if (Number.isFinite(item.actual_return_pct)) tags.push(percent(item.actual_return_pct));
+      return `
+      <article class="event-item">
+        <strong>${item.symbol} ${item.decision || 'HOLD'}</strong>
+        <span class="event-meta">${formatEventTime(item.time)} | equity ${money(item.paper_equity ?? 0)}</span>
+        <span class="event-meta">${item.reason || 'No decision reason provided.'}</span>
+        <div class="event-tags">
+          ${tags.map((tag) => `<span class="event-tag">${tag}</span>`).join('')}
+        </div>
+      </article>
+    `;
+    }).join('');
+  } else if (!replay.decisions.length) {
     output.decisionLog.innerHTML = '<article class="event-item"><strong>No paper decisions yet</strong><span class="event-meta">Run or step the replay to generate events.</span></article>';
     output.decisionSummary.textContent = 'No decisions';
   } else {
-    output.decisionSummary.textContent = `${replay.decisions.length} recent`;
+    output.decisionSummary.textContent = `${replay.decisions.length} recent (local replay)`;
     output.decisionLog.innerHTML = replay.decisions.map((item) => `
       <article class="event-item">
         <strong>${item.action}</strong>
@@ -454,23 +514,63 @@ function renderEventList() {
     `).join('');
   }
 
-  if (!replay.mistakes.length) {
+  if (hasMistakeFeed) {
+    output.mistakeSummary.textContent = `${executionFeed.mistakes.length} flagged (${executionFeed.mistakesSource})`;
+    output.mistakeLog.innerHTML = executionFeed.mistakes.map((item) => {
+      const title = item.title || item.mistake_type || 'Mistake';
+      const detail = item.detail || `${item.symbol} ${item.mistake_type || 'issue'} (${item.severity || 'unknown'})`;
+      const tags = [item.symbol || 'unknown', item.severity || 'unknown'];
+      return `
+      <article class="event-item">
+        <strong>${title}</strong>
+        <span class="event-meta">${formatEventTime(item.time)}</span>
+        <span class="event-meta">${detail}</span>
+        <div class="event-tags">
+          ${tags.map((tag) => `<span class="event-tag">${tag}</span>`).join('')}
+        </div>
+      </article>
+    `;
+    }).join('');
+  } else if (!replay.mistakes.length) {
     output.mistakeLog.innerHTML = '<article class="event-item"><strong>No replay mistakes</strong><span class="event-meta">Risk breaches and drawdown events appear here.</span></article>';
     output.mistakeSummary.textContent = 'No mistakes';
+  } else {
+    output.mistakeSummary.textContent = `${replay.mistakes.length} flagged (local replay)`;
+    output.mistakeLog.innerHTML = replay.mistakes.map((item) => `
+      <article class="event-item">
+        <strong>${item.title}</strong>
+        <span class="event-meta">${item.time} | tick ${item.tick}</span>
+        <span class="event-meta">${item.detail}</span>
+        <div class="event-tags">
+          ${item.tags.map((tag) => `<span class="event-tag">${tag}</span>`).join('')}
+        </div>
+      </article>
+    `).join('');
+  }
+}
+
+function renderBrokerEvents() {
+  if (!executionFeed.brokerEvents.length) {
+    output.brokerSummary.textContent = 'No events';
+    output.brokerLog.innerHTML = '<article class="event-item"><strong>No broker events yet</strong><span class="event-meta">Place demo orders or connect Postgres-backed broker events.</span></article>';
     return;
   }
 
-  output.mistakeSummary.textContent = `${replay.mistakes.length} flagged`;
-  output.mistakeLog.innerHTML = replay.mistakes.map((item) => `
-    <article class="event-item">
-      <strong>${item.title}</strong>
-      <span class="event-meta">${item.time} | tick ${item.tick}</span>
-      <span class="event-meta">${item.detail}</span>
-      <div class="event-tags">
-        ${item.tags.map((tag) => `<span class="event-tag">${tag}</span>`).join('')}
-      </div>
-    </article>
-  `).join('');
+  output.brokerSummary.textContent = `${executionFeed.brokerEvents.length} recent (${executionFeed.brokerSource})`;
+  output.brokerLog.innerHTML = executionFeed.brokerEvents.map((item) => {
+    const pnlClass = Number(item.realized_pnl || 0) >= 0 ? 'status-ok' : 'status-danger';
+    return `
+      <article class="event-item">
+        <strong>${item.side} ${item.symbol} ${money(item.amount)}</strong>
+        <span class="event-meta">${formatEventTime(item.time)} | ${money(item.price)} | units ${decimal(Number(item.units || 0), 6)}</span>
+        <span class="event-meta">fee ${money(Number(item.estimated_fee || 0))} | realized ${money(Number(item.realized_pnl || 0))}</span>
+        <div class="event-tags">
+          <span class="event-tag ${pnlClass}">${item.status || 'accepted'}</span>
+          ${item.reason ? `<span class="event-tag">${item.reason}</span>` : ''}
+        </div>
+      </article>
+    `;
+  }).join('');
 }
 
 async function fetchJson(url) {
@@ -499,6 +599,112 @@ async function loadStrategyFeed() {
     strategyFeed.loaded = true;
   }
   renderTimeline();
+}
+
+async function loadExecutionFeed() {
+  try {
+    const [decisions, mistakes, brokerEvents] = await Promise.all([
+      fetchJson(`${strategyApiBase}/events/decisions?limit=12`),
+      fetchJson(`${strategyApiBase}/events/mistakes?limit=12`),
+      fetchJson(`${strategyApiBase}/broker/demo/events?limit=12`)
+    ]);
+    executionFeed.decisions = Array.isArray(decisions.items) ? decisions.items : [];
+    executionFeed.mistakes = Array.isArray(mistakes.items) ? mistakes.items : [];
+    executionFeed.brokerEvents = Array.isArray(brokerEvents.items) ? brokerEvents.items : [];
+    executionFeed.decisionsSource = decisions.source || 'api';
+    executionFeed.mistakesSource = mistakes.source || 'api';
+    executionFeed.brokerSource = brokerEvents.source || 'api';
+    executionFeed.error = '';
+    executionFeed.loaded = true;
+  } catch (error) {
+    executionFeed.error = error.message;
+    executionFeed.loaded = true;
+  }
+  renderEventList();
+  renderBrokerEvents();
+}
+
+function normalizedWatchlistSymbols(raw) {
+  return raw
+    .split(',')
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean)
+    .join(',');
+}
+
+function watchlistAgeSeconds() {
+  if (!watchlistFeed.loadedAtMs) return null;
+  return Math.max(0, Math.floor((Date.now() - watchlistFeed.loadedAtMs) / 1000));
+}
+
+function renderWatchlistFeed() {
+  if (watchlistFeed.error) {
+    output.watchlistSummary.textContent = `API unavailable (${watchlistFeed.error})`;
+    output.watchlistPredictions.innerHTML = '<article class="event-item"><strong>Watchlist unavailable</strong><span class="event-meta">Check Brain API and retry.</span></article>';
+    return;
+  }
+
+  if (!watchlistFeed.items.length) {
+    output.watchlistSummary.textContent = 'No symbols loaded';
+    output.watchlistPredictions.innerHTML = '<article class="event-item"><strong>No watchlist data</strong><span class="event-meta">Enter symbols and refresh.</span></article>';
+    return;
+  }
+
+  const ageSeconds = watchlistAgeSeconds();
+  const stale = ageSeconds !== null && ageSeconds > Math.floor(watchlistStaleMs / 1000);
+  const staleLabel = stale ? `stale ${ageSeconds}s` : ageSeconds === null ? 'fresh' : `${ageSeconds}s ago`;
+  output.watchlistSummary.textContent = `${watchlistFeed.items.length} symbols | ${watchlistFeed.source} | ${staleLabel}`;
+
+  output.watchlistPredictions.innerHTML = watchlistFeed.items.map((item) => {
+    const prediction = item.prediction || {};
+    const plan = prediction.trade_plan || {};
+    const guard = prediction.execution_guardrails || {};
+    const cooldown = guard.cooldown || {};
+    const blocked = guard.execution_action === 'WAIT_COOLDOWN' || cooldown.can_trade_now === false;
+    const decision = prediction.paper_decision || 'HOLD';
+    const execAction = guard.execution_action || decision;
+    const remainingMs = Number(cooldown.remaining_ms || 0);
+    const guardText = blocked
+      ? `cooldown ${Math.ceil(remainingMs / 1000)}s`
+      : 'tradable now';
+    return `
+      <article class="event-item">
+        <strong>${item.symbol} ${prediction.direction || '--'} (${decimal(Number(prediction.confidence || 0), 0)}%)</strong>
+        <span class="event-meta">${formatEventTime(item.latest_candle?.time)} | close ${money(Number(item.latest_candle?.close || 0))}</span>
+        <span class="event-meta">paper ${decision} | execution ${execAction} | ${guardText}</span>
+        <span class="event-meta">target ${money(Number(plan.target_exit_price || item.latest_candle?.close || 0))} | net ${percent(Number(plan.net_expected_return_pct || 0))}</span>
+        <div class="event-tags">
+          <span class="event-tag ${blocked ? 'status-watch' : 'status-ok'}">${blocked ? 'WAIT_COOLDOWN' : 'READY'}</span>
+          ${plan.fee_assumption_pct !== undefined ? `<span class="event-tag">fee ${percent(Number(plan.fee_assumption_pct || 0))}</span>` : ''}
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function loadWatchlistFeed() {
+  const symbols = normalizedWatchlistSymbols(controls.watchlistSymbols.value || '');
+  if (!symbols) {
+    watchlistFeed.items = [];
+    watchlistFeed.error = '';
+    watchlistFeed.symbols = '';
+    renderWatchlistFeed();
+    return;
+  }
+
+  watchlistFeed.symbols = symbols;
+  controls.watchlistSymbols.value = symbols;
+  try {
+    const payload = await fetchJson(`${strategyApiBase}/watchlist/predictions?symbols=${encodeURIComponent(symbols)}`);
+    watchlistFeed.items = Array.isArray(payload.items) ? payload.items : [];
+    watchlistFeed.source = payload.source || 'unknown';
+    watchlistFeed.status = payload.status || 'ok';
+    watchlistFeed.error = '';
+    watchlistFeed.loadedAtMs = Date.now();
+  } catch (error) {
+    watchlistFeed.error = error.message;
+  }
+  renderWatchlistFeed();
 }
 
 function formatTimelineTimestamp(value) {
@@ -612,7 +818,9 @@ function renderReplay(model) {
   output.simTick.textContent = `Tick ${replay.tick}`;
   output.simEquity.textContent = money(replay.equity);
   output.simDrawdown.textContent = `Drawdown ${percent(drawdown)}`;
-  output.tapeSummary.textContent = `${replay.status} | ${replay.decisions.length} decisions | ${replay.mistakes.length} mistakes`;
+  const decisionCount = executionFeed.decisions.length || replay.decisions.length;
+  const mistakeCount = executionFeed.mistakes.length || replay.mistakes.length;
+  output.tapeSummary.textContent = `${replay.status} | ${decisionCount} decisions | ${mistakeCount} mistakes`;
   output.positionTitle.textContent = `${model.asset} ${model.direction.toUpperCase()} x${decimal(model.leverage, 0)}`;
   output.positionPnl.textContent = money(replay.pnl);
   output.positionPnl.className = pnlClass;
@@ -621,6 +829,8 @@ function renderReplay(model) {
   output.positionStatus.className = statusClass;
 
   renderEventList();
+  renderBrokerEvents();
+  renderWatchlistFeed();
   renderTimeline();
   drawEquityCurve(model);
 }
@@ -883,6 +1093,12 @@ controls.speedSelect.addEventListener('change', () => {
   }
   renderReplay(readModel());
 });
+controls.refreshWatchlistButton.addEventListener('click', () => {
+  loadWatchlistFeed();
+});
+controls.watchlistSymbols.addEventListener('change', () => {
+  loadWatchlistFeed();
+});
 document.getElementById('clearLogButton').addEventListener('click', () => {
   localStorage.removeItem(storageKey);
   renderSnapshots();
@@ -891,4 +1107,8 @@ document.getElementById('clearLogButton').addEventListener('click', () => {
 renderSnapshots();
 render();
 loadStrategyFeed();
+loadExecutionFeed();
+loadWatchlistFeed();
 window.setInterval(loadStrategyFeed, 30000);
+window.setInterval(loadExecutionFeed, 30000);
+window.setInterval(loadWatchlistFeed, watchlistRefreshMs);

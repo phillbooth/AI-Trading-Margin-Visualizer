@@ -29,7 +29,8 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 - [x] Expose a read-only Brain API for active strategy state and generation history.
 - [x] Expose basic live-watch and demo broker scaffolding from the Brain API.
 - Emit paper decisions only.
-- Persist decisions, PnL, and state to Postgres.
+- [x] Persist decisions, predictions, mistake logs, and backtest runs to Postgres through the trainer report sync path.
+- [x] Persist demo broker notification events to Postgres with local fallback.
 - Add graceful shutdown state save.
 
 ## Phase 4: Lab MVP
@@ -56,7 +57,8 @@ This backlog turns the documentation pack into a runnable v1 in conservative ste
 - [x] Show mistake log table.
 - [x] Show strategy generation timeline.
 - [x] Read strategy generation timeline from the Brain API when available, with local fallback.
-- Add broker notification log for demo/live order events.
+- [x] Expose broker event history endpoint from Brain (`/broker/demo/events`) with Postgres and local fallback modes.
+- [x] Add broker notification log UI panel for demo/live order events.
 
 ## Phase 6: Safety Hardening
 
@@ -80,9 +82,9 @@ The repository has moved past the initial scaffolding pass. The next concrete ta
 
 - Add a real stock data adapter that writes five-year daily OHLCV CSV files into ignored `data/historical/`.
 - Teach Mirror to replay files from `data/historical/` by symbol and date range.
-- Persist Brain backtest predictions and mistake logs into Postgres.
-- Persist decisions and backtest runs into Postgres.
-- Persist broker notification events and audit trail into Postgres.
+- [x] Persist Brain backtest predictions and mistake logs into Postgres.
+- [x] Persist decisions and backtest runs into Postgres.
+- [x] Persist broker notification events and audit trail into Postgres.
 - Replace the remaining local replay-only decision and mistake UI history with database-backed records.
 
 That gives the Lab real evidence for deciding whether a rewrite made the strategy better or just overfit the sample, and it moves the UI from prototype-only event history to real run history.

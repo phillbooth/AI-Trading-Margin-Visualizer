@@ -171,6 +171,7 @@ h2 {
 .summary-panel,
 .chart-panel,
 .ai-panel,
+.watchlist-panel,
 .replay-panel,
 .decision-panel,
 .mistake-panel,
@@ -336,6 +337,18 @@ button:focus-visible {
   gap: 14px;
 }
 
+.watchlist-panel {
+  padding: 14px;
+}
+
+.watchlist-controls {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .chart-panel,
 .ai-panel,
 .replay-panel,
@@ -400,7 +413,7 @@ canvas {
 
 .operations-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -673,7 +686,8 @@ th {
 
   .field-grid,
   .metric-band,
-  .position-sheet {
+  .position-sheet,
+  .watchlist-controls {
     grid-template-columns: 1fr;
   }
 

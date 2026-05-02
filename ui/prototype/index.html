@@ -192,6 +192,21 @@
           </section>
         </div>
 
+        <section class="watchlist-panel" aria-label="Live watchlist predictions">
+          <div class="panel-heading">
+            <h2>Watchlist Predictions</h2>
+            <span id="watchlistSummary">Not loaded</span>
+          </div>
+          <div class="watchlist-controls">
+            <label>
+              Symbols
+              <input id="watchlistSymbols" type="text" value="AMZN,NVDA,GOOG" placeholder="AMZN,NVDA,GOOG">
+            </label>
+            <button type="button" class="secondary-button" id="refreshWatchlistButton">Refresh</button>
+          </div>
+          <div id="watchlistPredictions" class="event-list"></div>
+        </section>
+
         <div class="operations-grid">
           <section class="decision-panel" aria-label="Decision log">
             <div class="panel-heading">
@@ -215,6 +230,14 @@
               <span id="timelineSummary">Gen 3 active</span>
             </div>
             <div id="strategyTimeline" class="timeline-list"></div>
+          </section>
+
+          <section class="timeline-panel" aria-label="Broker notification log">
+            <div class="panel-heading">
+              <h2>Broker Notifications</h2>
+              <span id="brokerSummary">No events</span>
+            </div>
+            <div id="brokerLog" class="event-list"></div>
           </section>
         </div>
 

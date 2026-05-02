@@ -5,6 +5,15 @@ from pathlib import Path
 
 from market_data import latest_price, normalize_symbol
 
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+except ImportError:  # pragma: no cover - optional dependency for local mode
+    psycopg = None
+    dict_row = None
+    Jsonb = None
+
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE_PATH = ROOT / "run" / "demo_broker_state.json"
@@ -81,6 +90,171 @@ def save_state(state):
     state["updated_at"] = now_iso()
     STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
     return state
+
+
+def db_support_status():
+    if psycopg is None or Jsonb is None or dict_row is None:
+        return {"enabled": False, "reason": "psycopg_not_installed"}
+    return {"enabled": True}
+
+
+def db_connect():
+    status = db_support_status()
+    if not status["enabled"]:
+        raise RuntimeError(status["reason"])
+    return psycopg.connect(
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        dbname=os.getenv("POSTGRES_DB", "neural_twin"),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=os.getenv("POSTGRES_PASSWORD", "password"),
+        row_factory=dict_row,
+    )
+
+
+def get_or_create_asset_id(cur, symbol, asset_type="STOCK", quote_currency="USD"):
+    cur.execute(
+        """
+        INSERT INTO assets (symbol, name, asset_type, quote_currency)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (symbol) DO UPDATE SET
+            asset_type = EXCLUDED.asset_type,
+            quote_currency = COALESCE(assets.quote_currency, EXCLUDED.quote_currency)
+        RETURNING id
+        """,
+        (symbol, symbol, asset_type, quote_currency),
+    )
+    return cur.fetchone()["id"]
+
+
+def sync_broker_event(event, state):
+    support = db_support_status()
+    if not support["enabled"]:
+        return {"status": "skipped", "reason": support["reason"]}
+
+    try:
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                asset_id = get_or_create_asset_id(cur, event["symbol"])
+                cur.execute(
+                    """
+                    INSERT INTO broker_events (
+                        event_time,
+                        mode,
+                        provider,
+                        asset_id,
+                        symbol,
+                        side,
+                        amount,
+                        units,
+                        price,
+                        leverage,
+                        estimated_fee,
+                        realized_pnl,
+                        status,
+                        reason,
+                        cash_after,
+                        currency,
+                        payload
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        event.get("time"),
+                        "demo",
+                        "local_demo",
+                        asset_id,
+                        event.get("symbol"),
+                        event.get("side"),
+                        float(event.get("amount", 0.0)),
+                        float(event.get("units", 0.0)),
+                        float(event.get("price", 0.0)),
+                        float(event.get("leverage", 1.0)),
+                        float(event.get("estimated_fee", 0.0)),
+                        float(event.get("realized_pnl", 0.0)),
+                        "accepted",
+                        None,
+                        float(state.get("cash", 0.0)),
+                        state.get("currency"),
+                        Jsonb(event),
+                    ),
+                )
+            conn.commit()
+    except Exception as error:  # pragma: no cover - runtime DB dependency
+        return {"status": "failed", "error": str(error)}
+
+    return {"status": "synced"}
+
+
+def fetch_broker_events(limit=50):
+    support = db_support_status()
+    if not support["enabled"]:
+        return {
+            "source": "local_state",
+            "status": "fallback",
+            "items": load_state().get("history", [])[-limit:][::-1],
+        }
+
+    try:
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        event_time,
+                        symbol,
+                        side,
+                        amount,
+                        units,
+                        price,
+                        leverage,
+                        estimated_fee,
+                        realized_pnl,
+                        status,
+                        reason,
+                        cash_after,
+                        currency,
+                        payload
+                    FROM broker_events
+                    ORDER BY event_time DESC, id DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                rows = cur.fetchall()
+    except Exception:  # pragma: no cover - runtime DB dependency
+        return {
+            "source": "local_state",
+            "status": "fallback",
+            "items": load_state().get("history", [])[-limit:][::-1],
+        }
+
+    items = []
+    for row in rows:
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        items.append({
+            "time": row["event_time"].isoformat() if row["event_time"] else payload.get("time"),
+            "symbol": row["symbol"],
+            "side": row["side"],
+            "amount": float(row["amount"]),
+            "units": float(row["units"]),
+            "price": float(row["price"]),
+            "leverage": float(row["leverage"]),
+            "estimated_fee": float(row["estimated_fee"]),
+            "realized_pnl": float(row["realized_pnl"]),
+            "status": row["status"],
+            "reason": row["reason"],
+            "cash_after": float(row["cash_after"]) if row["cash_after"] is not None else None,
+            "currency": row["currency"],
+            "source": payload.get("source"),
+            "target_exit_price": payload.get("target_exit_price"),
+            "take_profit_pct": payload.get("take_profit_pct"),
+        })
+    return {
+        "source": "postgres",
+        "status": "ok",
+        "items": items,
+    }
 
 
 def positions_as_list(state):
@@ -288,8 +462,10 @@ def place_demo_order(symbol, side, amount, leverage=1, target_exit_price=None, t
     }
     state["history"].append(event)
     save_state(state)
+    db_sync = sync_broker_event(event, state)
     return {
         "status": "accepted",
         "order": event,
+        "db_sync": db_sync,
         "broker_state": broker_state(),
     }

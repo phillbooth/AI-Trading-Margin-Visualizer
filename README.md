@@ -17,6 +17,9 @@ Current app features:
 - Paper equity curve, open position state, simulated drawdown, and replay price tape.
 - Decision log, mistake log, and strategy generation timeline to preview the future command center workflow.
 - Strategy generation timeline now reads the Brain strategy API when it is available, with a local fallback when the API or database is down.
+- Decision and mistake logs now read Brain event APIs first (`/events/decisions`, `/events/mistakes`) with local replay fallback.
+- Broker notifications now read `GET /broker/demo/events` with Postgres-first and local fallback behavior.
+- Watchlist predictions panel now reads `GET /watchlist/predictions` and shows paper decision plus cooldown-aware execution guardrails.
 - Stress scenario table for favorable, adverse, stop, shock, and liquidation outcomes.
 - Local snapshot log stored in browser storage.
 
@@ -34,7 +37,8 @@ The repo now has a functioning Lab and strategy-history API, but the runtime app
 
 - The current browser UI is the static prototype under `ui/prototype/`, not a Vue app yet.
 - The strategy timeline is backed by the Brain API.
-- The replay tape, decision log, and mistake log are still generated locally in the browser.
+- Decision log, mistake log, and broker notifications are API-backed with local fallback.
+- The replay tape and replay tick simulation are still generated locally in the browser.
 - Mirror exists as a replay REST service, but the UI does not consume it yet.
 - The Docker `brain` service currently runs the read-only API, not a persistent decision engine.
 
@@ -144,6 +148,19 @@ Inspect the local demo broker state:
 curl "http://localhost:3201/broker/demo/state"
 ```
 
+Inspect broker order events (Postgres-backed when available, local fallback otherwise):
+
+```bash
+curl "http://localhost:3201/broker/demo/events?limit=50"
+```
+
+Inspect recent persisted decision and mistake events:
+
+```bash
+curl "http://localhost:3201/events/decisions?limit=50"
+curl "http://localhost:3201/events/mistakes?limit=50"
+```
+
 Place a fee-aware demo broker order with an optional take-profit target:
 
 ```bash
@@ -165,6 +182,8 @@ Run three historical training passes across every CSV in a data directory:
 ```bash
 python lab/trainer.py --data-dir data/fixtures --passes 3 --report run/latest_training_report.json
 ```
+
+`lab/trainer.py` now attempts to persist predictions, decisions, mistakes, and backtest runs to Postgres by default. Use `--no-sync-db` to disable write attempts in local-only runs.
 
 Run a benchmark pack:
 
@@ -552,7 +571,7 @@ This project should begin as a paper-trading and simulation system only. Live ex
 
 ## Next Implementation Step
 
-Persist predictions, decisions, mistake logs, backtest runs, and broker notification events so the UI can stop using local replay-only event history and gain a proper demo/live trading event log.
+Add symbol normalization for non-U.S. and broker-specific aliases, then add demo broker UI controls for order placement and explicit close-position actions.
 
 ## License
 
